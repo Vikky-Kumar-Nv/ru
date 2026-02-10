@@ -1,6 +1,6 @@
 
 import { supabase } from './supabase.ts';
-import { User, Resource, Submission, LoginRecord, ResourceType, CoursePattern, DegreeLevel } from '../types.ts';
+import { User, Resource, Submission, LoginRecord, ResourceType, CoursePattern, DegreeLevel, Order } from '../types.ts';
 import { MOCK_RESOURCES } from '../constants.ts';
 
 const mapResource = (row: any): Resource => ({
@@ -53,6 +53,29 @@ const mapSubmission = (row: any): Submission => ({
   collegeId: row.college_id
 });
 
+const mapOrder = (row: any): Order => ({
+  id: row.id,
+  userId: row.user_id,
+  email: row.email,
+  itemName: row.item_name,
+  subject: row.subject,
+  semester: row.semester,
+  details: row.details,
+  status: row.status as 'pending' | 'fulfilled',
+  timestamp: row.timestamp
+});
+
+const mapProfile = (row: any): User => ({
+  id: row.id,
+  identifier: row.email,
+  name: row.name,
+  collegeId: row.college_id,
+  isLoggedIn: true,
+  credits: row.credits,
+  assessmentHistory: row.assessment_history,
+  savedResources: row.saved_resources || []
+});
+
 export const db = {
   async checkSystemHealth() {
     const results = {
@@ -65,29 +88,26 @@ export const db = {
     };
 
     try {
-      // Test Table Existence via Select
-      const { error: p } = await supabase.from('profiles').select('id', { count: 'exact', head: true }).limit(1);
+      const { error: p } = await supabase.from('profiles').select('id').limit(1);
       results.profilesTable = !p || (p.code !== '42P01');
       
-      const { error: r } = await supabase.from('resources').select('id', { count: 'exact', head: true }).limit(1);
+      const { error: r } = await supabase.from('resources').select('id').limit(1);
       results.resourcesTable = !r || (r.code !== '42P01');
 
-      const { error: s } = await supabase.from('submissions').select('id', { count: 'exact', head: true }).limit(1);
+      const { error: s } = await supabase.from('submissions').select('id').limit(1);
       results.submissionsTable = !s || (s.code !== '42P01');
 
-      const { error: o } = await supabase.from('orders').select('id', { count: 'exact', head: true }).limit(1);
+      const { error: o } = await supabase.from('orders').select('id').limit(1);
       results.ordersTable = !o || (o.code !== '42P01');
 
-      // Test Bucket Existence
-      const { data: buckets, error: bErr } = await supabase.storage.listBuckets();
-      if (!bErr && buckets) {
-          results.resourcesBucket = buckets.some(b => b.name === 'resources');
-          results.submissionsBucket = buckets.some(b => b.name === 'submissions');
-      } else {
-          console.warn("Could not list buckets", bErr);
-      }
+      const { error: resBErr } = await supabase.storage.from('resources').list('', { limit: 1 });
+      results.resourcesBucket = !resBErr || (resBErr.message !== 'Bucket not found');
+
+      const { error: subBErr } = await supabase.storage.from('submissions').list('', { limit: 1 });
+      results.submissionsBucket = !subBErr || (subBErr.message !== 'Bucket not found');
+
     } catch (e) {
-      console.error("Health check failed critical path", e);
+      console.error("Health check exception:", e);
     }
 
     return results;
@@ -113,8 +133,9 @@ export const db = {
     const row = mapResourceToRow(resource);
     const { error } = await supabase.from('resources').insert(row);
     if (error) {
+        console.error("DB Insert Resource Error:", error);
         if (error.code === '42501' || error.message?.includes('row-level security')) {
-            throw new Error("PERMISSION_DENIED_RESOURCES");
+            throw new Error("PERMISSION_DENIED_RESOURCES_TABLE");
         }
         throw new Error(`DB_ERROR: ${error.message}`);
     }
@@ -134,17 +155,13 @@ export const db = {
       .single();
 
     if (error) return undefined;
+    return mapProfile(data);
+  },
 
-    return {
-      id: data.id,
-      identifier: data.email,
-      name: data.name,
-      collegeId: data.college_id,
-      isLoggedIn: true,
-      credits: data.credits,
-      assessmentHistory: data.assessment_history,
-      savedResources: data.saved_resources || []
-    };
+  async getAllProfiles(): Promise<User[]> {
+    const { data, error } = await supabase.from('profiles').select('*');
+    if (error || !data) return [];
+    return data.map(mapProfile);
   },
 
   async saveUser(user: User): Promise<void> {
@@ -199,12 +216,9 @@ export const db = {
       if (uploadError) {
         console.error('Storage Upload Error Detail:', uploadError);
         const errObj = uploadError as any;
-        
-        // Handle 403 RLS violation
-        if (errObj.statusCode === "403" || errObj.message?.includes('policy') || errObj.error === "Unauthorized" || errObj.status === 403) {
+        if (errObj.statusCode === "403" || errObj.message?.includes('policy') || errObj.status === 403) {
             throw new Error("PERMISSION_DENIED_SUBMISSIONS");
         }
-        
         if (errObj.message?.includes('Bucket not found') || errObj.statusCode === "404" || errObj.status === 404) {
             throw new Error("BUCKET_MISSING_SUBMISSIONS");
         }
@@ -257,6 +271,20 @@ export const db = {
     }
   },
 
+  async getAllOrders(): Promise<Order[]> {
+    const { data, error } = await supabase
+        .from('orders')
+        .select('*')
+        .order('timestamp', { ascending: false });
+    if (error || !data) return [];
+    return data.map(mapOrder);
+  },
+
+  async deleteOrder(id: string): Promise<void> {
+    const { error } = await supabase.from('orders').delete().eq('id', id);
+    if (error) console.error('Error deleting order:', error);
+  },
+
   async updateSubmission(submission: Submission): Promise<void> {
     const row = {
       status: submission.status,
@@ -277,13 +305,17 @@ export const db = {
 
   async saveFile(resourceId: string, file: Blob): Promise<string | null> {
     const fileName = `${resourceId}.pdf`; 
-    const { error } = await supabase.storage
+    
+    // Attempting upload with logging
+    const { data: uploadData, error } = await supabase.storage
         .from('resources')
         .upload(fileName, file, { upsert: true });
 
     if (error) {
+        console.error("Supabase Storage saveFile error detail:", error);
         const errObj = error as any;
-        if (errObj.statusCode === "403" || errObj.message?.includes('policy') || errObj.status === 403) {
+        // Check for common permission/policy errors
+        if (errObj.statusCode === "403" || errObj.message?.toLowerCase().includes('policy') || errObj.status === 403) {
             throw new Error("PERMISSION_DENIED_RESOURCES");
         }
         if (errObj.message?.includes('Bucket not found') || errObj.statusCode === "404" || errObj.status === 404) {

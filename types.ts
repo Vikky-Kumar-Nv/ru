@@ -1,3 +1,4 @@
+
 export interface College {
   id: string;
   name: string;
@@ -112,6 +113,18 @@ export interface Submission {
   pattern?: CoursePattern; // Added for conversion to Resource
   degreeLevel?: DegreeLevel; // Added for conversion to Resource
   collegeId?: string; // Added for conversion to Resource
+}
+
+export interface Order {
+  id: string;
+  userId: string;
+  email: string;
+  itemName: string;
+  subject: string;
+  semester: string;
+  details: string;
+  status: 'pending' | 'fulfilled';
+  timestamp: number;
 }
 
 export type QuestionType = 'MCQ' | 'SUBJECTIVE';

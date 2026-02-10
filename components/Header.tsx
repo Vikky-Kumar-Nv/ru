@@ -1,6 +1,8 @@
+
 import React, { useState, useEffect } from 'react';
 import { Menu, X, BookOpen, Shield, Upload, CalendarCheck, Moon, Sun, User as UserIcon, LogOut, Award, PenTool, LogIn, History, Bookmark } from 'lucide-react';
 import { ResourceType, User } from '../types';
+import Logo from './Logo';
 
 interface HeaderProps {
   onLinkClick: (section: string, type?: string) => void;
@@ -14,7 +16,6 @@ interface HeaderProps {
 const Header: React.FC<HeaderProps> = ({ onLinkClick, darkMode, toggleTheme, user, onLogout, onLoginClick }) => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
-  const [logoError, setLogoError] = useState(false);
 
   useEffect(() => {
     const handleScroll = () => {
@@ -42,7 +43,6 @@ const Header: React.FC<HeaderProps> = ({ onLinkClick, darkMode, toggleTheme, use
     return name.charAt(0).toUpperCase();
   };
 
-  // Calculate Average Score
   const getAverageScore = () => {
     if (!user?.assessmentHistory || user.assessmentHistory.length === 0) return 0;
     const total = user.assessmentHistory.reduce((acc, curr) => acc + (curr.score / curr.totalMarks) * 100, 0);
@@ -52,7 +52,6 @@ const Header: React.FC<HeaderProps> = ({ onLinkClick, darkMode, toggleTheme, use
   return (
     <nav className={`fixed w-full top-0 z-50 transition-all duration-500 ${scrolled ? 'py-2' : 'py-4'}`}>
       
-      {/* Dynamic Background Layer */}
       <div className={`absolute inset-0 -z-10 overflow-hidden transition-all duration-500 ${
           scrolled 
             ? 'shadow-2xl border-b border-white/10' 
@@ -72,31 +71,8 @@ const Header: React.FC<HeaderProps> = ({ onLinkClick, darkMode, toggleTheme, use
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16 relative z-10">
           {/* Logo Section */}
-          <div className="flex items-center gap-3 cursor-pointer group" onClick={(e) => { e.preventDefault(); onLinkClick('hero', 'all'); }}>
-            {!logoError ? (
-                <img 
-                    src="/logo.png" 
-                    alt="StudyVault Logo" 
-                    className="h-12 w-12 object-contain group-hover:scale-105 transition-transform duration-300 drop-shadow-md"
-                    onError={() => setLogoError(true)}
-                />
-            ) : (
-                <div className="relative flex items-center justify-center">
-                   <div className="absolute inset-0 bg-amber-500 blur opacity-40 group-hover:opacity-60 transition-opacity rounded-full"></div>
-                   <div className="relative bg-gradient-to-br from-amber-500 to-orange-600 p-2 rounded-xl shadow-lg group-hover:scale-105 transition-transform duration-300 flex items-center justify-center h-10 w-10">
-                      <Shield className="h-6 w-6 text-white absolute" />
-                      <BookOpen className="h-3 w-3 text-amber-100 relative z-10 mt-1" />
-                   </div>
-                </div>
-            )}
-            <div className="flex flex-col">
-              <span className="font-serif text-2xl font-bold tracking-tight bg-gradient-to-r from-white via-amber-100 to-orange-100 bg-clip-text text-transparent group-hover:from-amber-200 group-hover:to-yellow-400 transition-all duration-300">
-                StudyVault
-              </span>
-              <span className="text-[10px] text-amber-500 font-bold tracking-[0.2em] uppercase">
-                Ranchi University
-              </span>
-            </div>
+          <div className="cursor-pointer group" onClick={(e) => { e.preventDefault(); onLinkClick('hero', 'all'); }}>
+            <Logo size={scrolled ? 'md' : 'lg'} />
           </div>
           
           {/* Desktop Navigation */}
@@ -110,7 +86,6 @@ const Header: React.FC<HeaderProps> = ({ onLinkClick, darkMode, toggleTheme, use
             <div className="h-6 w-px bg-white/10"></div>
 
             <div className="flex items-center gap-4">
-              {/* Admin Access Button */}
               <button 
                 onClick={(e) => handleNavClick(e, 'admin')}
                 className="p-2 rounded-full hover:bg-white/5 transition-colors text-slate-300 hover:text-amber-400"
@@ -119,7 +94,6 @@ const Header: React.FC<HeaderProps> = ({ onLinkClick, darkMode, toggleTheme, use
                 <Shield className="h-5 w-5" />
               </button>
 
-              {/* Theme Toggle */}
               <button 
                 onClick={toggleTheme}
                 className="p-2 rounded-full hover:bg-white/5 transition-colors text-slate-300 hover:text-amber-400"
@@ -141,7 +115,6 @@ const Header: React.FC<HeaderProps> = ({ onLinkClick, darkMode, toggleTheme, use
                       {getInitials(user.name || user.identifier)}
                     </button>
                   </div>
-                  {/* Dropdown / Tooltip */}
                   <div className="absolute right-0 top-full mt-3 w-72 bg-white dark:bg-slate-800 rounded-xl shadow-2xl border border-gray-100 dark:border-slate-700 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 transform origin-top-right z-50 p-4">
                     <div className="flex items-center gap-3 mb-3 pb-3 border-b border-gray-100 dark:border-slate-700">
                       <div className="h-10 w-10 rounded-full bg-university-light dark:bg-slate-700 flex items-center justify-center text-university-accent">
@@ -155,7 +128,6 @@ const Header: React.FC<HeaderProps> = ({ onLinkClick, darkMode, toggleTheme, use
                       </div>
                     </div>
 
-                    {/* Score Section */}
                     {user.assessmentHistory && user.assessmentHistory.length > 0 && (
                       <div className="mb-3 p-3 bg-gray-50 dark:bg-slate-700/50 rounded-lg border border-gray-100 dark:border-slate-700">
                           <div className="flex justify-between items-center mb-1">
@@ -170,53 +142,26 @@ const Header: React.FC<HeaderProps> = ({ onLinkClick, darkMode, toggleTheme, use
                       </div>
                     )}
                     
-                    <button 
-                      onClick={(e) => handleNavClick(e, 'profile')}
-                      className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-slate-700 rounded-lg transition-colors font-medium mb-1"
-                    >
-                      <UserIcon className="h-4 w-4" />
-                      My Profile
+                    <button onClick={(e) => handleNavClick(e, 'profile')} className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-slate-700 rounded-lg transition-colors font-medium mb-1">
+                      <UserIcon className="h-4 w-4" /> My Profile
                     </button>
-
-                    <button 
-                      onClick={(e) => handleNavClick(e, 'saved')}
-                      className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-slate-700 rounded-lg transition-colors font-medium mb-1"
-                    >
-                      <Bookmark className="h-4 w-4" />
-                      Saved Resources
+                    <button onClick={(e) => handleNavClick(e, 'saved')} className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-slate-700 rounded-lg transition-colors font-medium mb-1">
+                      <Bookmark className="h-4 w-4" /> Saved Resources
                     </button>
-
-                    <button 
-                      onClick={(e) => handleNavClick(e, 'assessment-history')}
-                      className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-slate-700 rounded-lg transition-colors font-medium mb-1"
-                    >
-                      <History className="h-4 w-4" />
-                      Assessment History
+                    <button onClick={(e) => handleNavClick(e, 'assessment-history')} className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-slate-700 rounded-lg transition-colors font-medium mb-1">
+                      <History className="h-4 w-4" /> Assessment History
                     </button>
-
-                    <button 
-                      onClick={handleUploadClick}
-                      className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-slate-700 rounded-lg transition-colors font-medium mb-1"
-                    >
-                      <Upload className="h-4 w-4" />
-                      Submit a Paper
+                    <button onClick={handleUploadClick} className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-slate-700 rounded-lg transition-colors font-medium mb-1">
+                      <Upload className="h-4 w-4" /> Submit a Paper
                     </button>
-
-                    <button 
-                      onClick={onLogout}
-                      className="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors font-medium"
-                    >
-                      <LogOut className="h-4 w-4" />
-                      Sign Out
+                    <button onClick={onLogout} className="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors font-medium">
+                      <LogOut className="h-4 w-4" /> Sign Out
                     </button>
                   </div>
                 </div>
               ) : (
                 <div className="flex items-center gap-3">
-                  <button 
-                    onClick={onLoginClick}
-                    className="group relative px-6 py-2.5 rounded-full font-bold text-sm text-white overflow-hidden shadow-lg shadow-slate-900/20 transition-all hover:scale-105 active:scale-95"
-                  >
+                  <button onClick={onLoginClick} className="group relative px-6 py-2.5 rounded-full font-bold text-sm text-white overflow-hidden shadow-lg shadow-slate-900/20 transition-all hover:scale-105 active:scale-95">
                     <div className="absolute inset-0 bg-gradient-to-r from-slate-600 to-slate-800 transition-all group-hover:scale-110"></div>
                     <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent translate-x-[-100%] group-hover:translate-x-[100%] transition-transform duration-700"></div>
                     <div className="relative flex items-center gap-2">
@@ -224,11 +169,7 @@ const Header: React.FC<HeaderProps> = ({ onLinkClick, darkMode, toggleTheme, use
                       <span>Login</span>
                     </div>
                   </button>
-                  <a 
-                    href="#" 
-                    onClick={handleUploadClick}
-                    className="group relative px-6 py-2.5 rounded-full font-bold text-sm text-white overflow-hidden shadow-lg shadow-amber-900/20 transition-all hover:scale-105 active:scale-95"
-                  >
+                  <a href="#" onClick={handleUploadClick} className="group relative px-6 py-2.5 rounded-full font-bold text-sm text-white overflow-hidden shadow-lg shadow-amber-900/20 transition-all hover:scale-105 active:scale-95">
                     <div className="absolute inset-0 bg-gradient-to-r from-amber-500 to-orange-600 transition-all group-hover:scale-110"></div>
                     <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent translate-x-[-100%] group-hover:translate-x-[100%] transition-transform duration-700"></div>
                     <div className="relative flex items-center gap-2">
@@ -241,17 +182,13 @@ const Header: React.FC<HeaderProps> = ({ onLinkClick, darkMode, toggleTheme, use
             </div>
           </div>
           
-          {/* Mobile Menu Button */}
           <div className="-mr-2 flex items-center md:hidden gap-4">
             {user && (
                <div className="h-8 w-8 rounded-full bg-gradient-to-br from-university-accent to-orange-600 flex items-center justify-center text-white font-bold text-sm shadow-md border border-white/10">
                   {getInitials(user.name || user.identifier)}
                </div>
             )}
-            <button 
-                onClick={toggleTheme}
-                className="p-2 rounded-full hover:bg-white/10 transition-colors text-amber-400"
-              >
+            <button onClick={toggleTheme} className="p-2 rounded-full hover:bg-white/10 transition-colors text-amber-400">
                 {darkMode ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
             </button>
             <button
@@ -266,7 +203,6 @@ const Header: React.FC<HeaderProps> = ({ onLinkClick, darkMode, toggleTheme, use
         </div>
       </div>
 
-      {/* Mobile menu */}
       <div className={`md:hidden transition-all duration-300 ease-in-out ${isMenuOpen ? 'max-h-[600px] opacity-100' : 'max-h-0 opacity-0'} overflow-hidden bg-gradient-to-b from-university-900 to-slate-900 border-t border-white/10 shadow-2xl absolute w-full`}>
         <div className="px-4 pt-4 pb-6 space-y-2">
           {user ? (
@@ -291,7 +227,6 @@ const Header: React.FC<HeaderProps> = ({ onLinkClick, darkMode, toggleTheme, use
                       Credits Earned: {user.credits}
                    </div>
                 )}
-                {/* Mobile Score Display */}
                 {user.assessmentHistory && user.assessmentHistory.length > 0 && (
                    <div className="bg-slate-800 rounded-lg p-2 flex items-center justify-between text-xs border border-white/5">
                       <span className="text-gray-400">Avg. Score</span>
@@ -299,26 +234,16 @@ const Header: React.FC<HeaderProps> = ({ onLinkClick, darkMode, toggleTheme, use
                    </div>
                 )}
                 
-                <button 
-                  onClick={(e) => handleNavClick(e, 'profile')}
-                  className="w-full flex items-center justify-center gap-2 bg-slate-800/50 hover:bg-slate-800 py-2 rounded-lg text-xs font-bold text-gray-300 border border-white/5 transition-colors mt-2"
-                >
+                <button onClick={(e) => handleNavClick(e, 'profile')} className="w-full flex items-center justify-center gap-2 bg-slate-800/50 hover:bg-slate-800 py-2 rounded-lg text-xs font-bold text-gray-300 border border-white/5 transition-colors mt-2">
                    <UserIcon className="h-3 w-3" /> My Profile
                 </button>
-
-                <button 
-                  onClick={(e) => handleNavClick(e, 'saved')}
-                  className="w-full flex items-center justify-center gap-2 bg-slate-800/50 hover:bg-slate-800 py-2 rounded-lg text-xs font-bold text-gray-300 border border-white/5 transition-colors mt-2"
-                >
+                <button onClick={(e) => handleNavClick(e, 'saved')} className="w-full flex items-center justify-center gap-2 bg-slate-800/50 hover:bg-slate-800 py-2 rounded-lg text-xs font-bold text-gray-300 border border-white/5 transition-colors mt-2">
                    <Bookmark className="h-3 w-3" /> Saved Resources
                 </button>
              </div>
           ) : (
              <div className="mb-4">
-                <button 
-                  onClick={() => { onLoginClick(); closeMenu(); }}
-                  className="w-full py-3 rounded-xl bg-gradient-to-r from-slate-600 to-slate-800 text-white font-bold flex items-center justify-center gap-2 transition-all shadow-lg mb-3"
-                >
+                <button onClick={() => { onLoginClick(); closeMenu(); }} className="w-full py-3 rounded-xl bg-gradient-to-r from-slate-600 to-slate-800 text-white font-bold flex items-center justify-center gap-2 transition-all shadow-lg mb-3">
                    <LogIn className="h-5 w-5" /> Login
                 </button>
              </div>
@@ -331,10 +256,7 @@ const Header: React.FC<HeaderProps> = ({ onLinkClick, darkMode, toggleTheme, use
           <MobileNavLink onClick={(e) => handleNavClick(e, 'admin')} label="Admin Panel" icon={<Shield className="h-4 w-4" />} />
           
           <div className="pt-4 mt-4 border-t border-white/10">
-            <button 
-                onClick={handleUploadClick}
-                className="w-full bg-gradient-to-r from-amber-500 to-orange-600 text-white font-bold py-3 rounded-xl flex items-center justify-center gap-2 shadow-lg"
-              >
+            <button onClick={handleUploadClick} className="w-full bg-gradient-to-r from-amber-500 to-orange-600 text-white font-bold py-3 rounded-xl flex items-center justify-center gap-2 shadow-lg">
                 <Upload className="h-5 w-5" />
                 Upload Materials
               </button>
@@ -346,10 +268,7 @@ const Header: React.FC<HeaderProps> = ({ onLinkClick, darkMode, toggleTheme, use
 };
 
 const NavButton = ({ onClick, label, icon }: { onClick: (e: any) => void, label: string, icon?: React.ReactNode }) => (
-  <button 
-    onClick={onClick}
-    className="relative px-4 py-2 text-sm font-medium text-slate-300 hover:text-white transition-colors group overflow-hidden rounded-lg hover:bg-white/5"
-  >
+  <button onClick={onClick} className="relative px-4 py-2 text-sm font-medium text-slate-300 hover:text-white transition-colors group overflow-hidden rounded-lg hover:bg-white/5">
     <div className="flex items-center gap-1.5 relative z-10">
       {icon}
       <span>{label}</span>
@@ -358,11 +277,7 @@ const NavButton = ({ onClick, label, icon }: { onClick: (e: any) => void, label:
 );
 
 const MobileNavLink = ({ onClick, label, icon }: { onClick: (e: any) => void, label: string, icon?: React.ReactNode }) => (
-  <a 
-    href="#" 
-    onClick={onClick}
-    className="flex items-center gap-3 px-4 py-3 rounded-xl text-base font-medium text-slate-300 hover:text-white hover:bg-white/10 transition-all active:scale-95"
-  >
+  <a href="#" onClick={onClick} className="flex items-center gap-3 px-4 py-3 rounded-xl text-base font-medium text-slate-300 hover:text-white hover:bg-white/10 transition-all active:scale-95">
     {icon}
     <span>{label}</span>
   </a>

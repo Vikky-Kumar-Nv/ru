@@ -1,5 +1,7 @@
+
 import React, { useState, useEffect } from 'react';
 import { BookOpen, Shield, Mail, Phone, X, Instagram, Twitter, Facebook, Activity, Globe, Heart } from 'lucide-react';
+import Logo from './Logo';
 
 interface FooterProps {
   onNavigate: (section: string) => void;
@@ -7,14 +9,11 @@ interface FooterProps {
 
 const Footer: React.FC<FooterProps> = ({ onNavigate }) => {
   const [showContactModal, setShowContactModal] = useState(false);
-  const [logoError, setLogoError] = useState(false);
-  // Initial count between 12,000 and 15,000
   const [visitorCount, setVisitorCount] = useState(() => Math.floor(Math.random() * (15000 - 12000 + 1)) + 12000);
 
   useEffect(() => {
     const interval = setInterval(() => {
       setVisitorCount(prev => {
-        // Keep it within the 12k-15.5k range naturally
         const change = Math.floor(Math.random() * 5) - 1; 
         const next = prev + change;
         return next > 15500 ? 15000 : next < 12000 ? 12005 : next;
@@ -31,8 +30,6 @@ const Footer: React.FC<FooterProps> = ({ onNavigate }) => {
 
   return (
     <footer className="bg-slate-950 text-white border-t border-slate-900 pt-20 pb-10">
-      
-      {/* Contact Modal */}
       {showContactModal && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-300">
           <div className="bg-white dark:bg-slate-900 rounded-[2rem] p-8 w-full max-w-md border border-slate-200 dark:border-slate-800 shadow-2xl scale-100 animate-in zoom-in-95 duration-200">
@@ -72,25 +69,13 @@ const Footer: React.FC<FooterProps> = ({ onNavigate }) => {
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="grid grid-cols-2 md:grid-cols-5 gap-y-16 gap-x-12 mb-20">
-          
-          {/* Brand Info */}
           <div className="col-span-2 space-y-8">
-            <div className="flex items-center gap-3 cursor-pointer group" onClick={() => onNavigate('hero')}>
-               {!logoError ? (
-                  <img src="/logo.png" className="h-10 w-10 object-contain group-hover:scale-110 transition-transform duration-500" onError={() => setLogoError(true)} />
-               ) : (
-                  <Shield className="h-8 w-8 text-university-accent" />
-               )}
-               <div className="flex flex-col">
-                  <span className="font-serif text-2xl font-bold tracking-tight">StudyVault</span>
-                  <span className="text-[10px] text-university-accent font-bold uppercase tracking-[0.2em]">Knowledge Hub</span>
-               </div>
+            <div className="cursor-pointer group" onClick={() => onNavigate('hero')}>
+               <Logo size="md" />
             </div>
             <p className="text-sm text-slate-400 leading-relaxed max-w-xs">
               Empowering students of Ranchi University with a centralized repository of academic excellence. Knowledge Secured. Success Assured.
             </p>
-            
-            {/* Live Stats Pill */}
             <div className="inline-flex items-center gap-4 px-5 py-2.5 rounded-full bg-white/5 border border-white/10 group hover:border-university-accent/30 transition-all">
                <div className="relative flex h-2 w-2">
                   <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
@@ -103,7 +88,6 @@ const Footer: React.FC<FooterProps> = ({ onNavigate }) => {
             </div>
           </div>
 
-          {/* Nav Column 1 */}
           <div>
             <h4 className="text-xs font-bold uppercase tracking-[0.25em] text-university-accent mb-8">Resources</h4>
             <ul className="space-y-4 text-sm text-slate-400">
@@ -114,7 +98,6 @@ const Footer: React.FC<FooterProps> = ({ onNavigate }) => {
             </ul>
           </div>
 
-          {/* Nav Column 2 */}
           <div>
              <h4 className="text-xs font-bold uppercase tracking-[0.25em] text-university-accent mb-8">Platform</h4>
              <ul className="space-y-4 text-sm text-slate-400">
@@ -125,9 +108,8 @@ const Footer: React.FC<FooterProps> = ({ onNavigate }) => {
              </ul>
           </div>
 
-          {/* Connect Column */}
           <div className="flex flex-col items-start md:items-end">
-             <h4 className="text-xs font-bold uppercase tracking-[0.25em] text-university-accent mb-8">Join the Circle</h4>
+             <h4 className="text-xs font-bold uppercase tracking-[0.25em] text-university-accent mb-8">Connect Column</h4>
              <div className="flex gap-4 mb-8">
                 <a href="https://www.instagram.com/suryanshthakur_77/" target="_blank" rel="noopener noreferrer" className="p-3 rounded-2xl bg-white/5 hover:bg-university-accent text-slate-500 hover:text-white transition-all hover:-translate-y-1 shadow-lg">
                     <Instagram className="h-5 w-5" />
@@ -138,7 +120,6 @@ const Footer: React.FC<FooterProps> = ({ onNavigate }) => {
           </div>
         </div>
 
-        {/* Bottom Bar */}
         <div className="pt-10 border-t border-white/5 flex flex-col md:flex-row justify-between items-center gap-6">
            <div className="flex flex-col md:flex-row items-center gap-6">
               <p className="text-xs text-slate-500 font-medium tracking-wide">&copy; 2026 StudyVault. Ranchi University Academic Node.</p>

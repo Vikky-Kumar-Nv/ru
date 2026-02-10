@@ -1,9 +1,10 @@
+
 import React, { useState, useRef } from 'react';
 import { 
   Upload, FileText, CheckCircle, AlertCircle, Award, Gift, X, 
   Clock, ShieldAlert, ExternalLink, Settings, Lock, FileCheck, 
   Sparkles, Trophy, Gem, HelpCircle, ArrowRight, MousePointer2,
-  Check, ShieldCheck
+  Check, ShieldCheck, ListChecks, Database, UserCheck, Zap
 } from 'lucide-react';
 import { User, ResourceType, Submission, CoursePattern, DegreeLevel } from '../types.ts';
 import { SUBJECTS, SEMESTERS, COLLEGES } from '../constants.ts';
@@ -145,77 +146,88 @@ const SubmitPaper: React.FC<SubmitPaperProps> = ({ user, userSubmissions, onLogi
           </p>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-10">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-12">
           
-          {/* Left Column: Guidelines & Perks (4 cols) */}
-          <div className="lg:col-span-4 space-y-8">
+          {/* Left Column: Visual Roadmap (5 cols) */}
+          <div className="lg:col-span-5 space-y-8">
             
-            {/* Credits Dashboard */}
-            <div className="bg-university-900 rounded-[2.5rem] p-10 text-white shadow-2xl relative overflow-hidden group">
+            {/* Credits Mini Dashboard */}
+            <div className="bg-university-900 rounded-[2.5rem] p-8 text-white shadow-2xl relative overflow-hidden group">
                <div className="absolute top-0 right-0 w-32 h-32 bg-university-accent opacity-10 rounded-full -mr-16 -mt-16 group-hover:scale-110 transition-transform duration-700"></div>
-               <div className="relative z-10">
-                  <div className="flex items-center gap-3 mb-8">
-                     <div className="p-3 rounded-2xl bg-university-accent/20 border border-white/10">
-                        <Trophy className="h-6 w-6 text-university-accent" />
-                     </div>
-                     <h3 className="text-xl font-serif font-bold">Your Standing</h3>
-                  </div>
-                  <div className="mb-8">
-                      <p className="text-[10px] text-slate-400 uppercase font-black tracking-widest mb-1">Available Balance</p>
+               <div className="relative z-10 flex items-center justify-between">
+                  <div>
+                      <p className="text-[10px] text-slate-400 uppercase font-black tracking-widest mb-1">Your Balance</p>
                       <div className="flex items-baseline gap-2">
-                        <span className="text-6xl font-black text-white">{user?.credits || 0}</span>
-                        <span className="text-university-accent font-bold text-sm tracking-widest uppercase">Credits</span>
+                        <span className="text-5xl font-black text-white">{user?.credits || 0}</span>
+                        <span className="text-university-accent font-bold text-xs tracking-widest uppercase">CR</span>
                       </div>
                   </div>
-                  <div className="p-4 rounded-2xl bg-white/5 border border-white/10 backdrop-blur-sm">
-                      <div className="flex justify-between items-center mb-2">
-                          <span className="text-[10px] font-black uppercase text-slate-300">Next Milestone</span>
-                          <span className="text-[10px] font-black text-university-accent">200 CR</span>
-                      </div>
-                      <div className="w-full h-1.5 bg-white/10 rounded-full overflow-hidden">
-                          <div className="h-full bg-university-accent rounded-full transition-all duration-1000" style={{ width: `${Math.min(((user?.credits || 0)/200)*100, 100)}%` }}></div>
-                      </div>
+                  <div className="p-4 rounded-2xl bg-white/5 border border-white/10 backdrop-blur-sm flex flex-col items-center">
+                      <Trophy className="h-6 w-6 text-university-accent mb-2" />
+                      <span className="text-[10px] font-black uppercase text-slate-300">Level 1</span>
                   </div>
                </div>
             </div>
 
-            {/* Incentives Card */}
-            <div className="bg-white dark:bg-slate-900 rounded-[2.5rem] p-8 border border-gray-100 dark:border-slate-800 shadow-xl">
-               <h3 className="text-xl font-serif font-bold text-university-900 dark:text-white mb-6">Why Contribute?</h3>
-               <div className="space-y-6">
-                  <PerkItem icon={<Award className="text-amber-500" />} title="+5 Credits" desc="Earn points for every verified PDF you upload." />
-                  <PerkItem icon={<Gem className="text-blue-500" />} title="Rank Up" desc="Unlock Scholar status and exclusive platform badges." />
-                  <PerkItem icon={<ShieldCheck className="text-emerald-500" />} title="Community Impact" desc="Help thousands of Ranchi University students succeed." />
+            {/* The Visual Roadmap */}
+            <div className="bg-white dark:bg-slate-900 rounded-[2.5rem] p-10 border border-gray-100 dark:border-slate-800 shadow-xl relative overflow-hidden">
+               <div className="absolute top-0 right-0 p-8 opacity-[0.03] dark:opacity-[0.07]">
+                  <ListChecks className="h-32 w-32" />
                </div>
-            </div>
-
-            {/* Quality Checklist */}
-            <div className="bg-gray-50 dark:bg-slate-800/50 rounded-[2.5rem] p-8 border border-dashed border-gray-300 dark:border-slate-700">
-               <h3 className="text-sm font-black uppercase tracking-widest text-gray-500 dark:text-gray-400 mb-6 flex items-center gap-2">
-                  <CheckCircle className="h-4 w-4" /> Quality Check
+               
+               <h3 className="text-2xl font-serif font-bold text-university-900 dark:text-white mb-10 flex items-center gap-3">
+                  <Zap className="h-6 w-6 text-university-accent" />
+                  Submission Roadmap
                </h3>
-               <ul className="space-y-4">
-                  <li className="flex items-start gap-3 text-xs font-bold text-gray-600 dark:text-gray-300">
-                    <div className="h-5 w-5 rounded bg-white dark:bg-slate-700 flex items-center justify-center shrink-0 border border-gray-200 dark:border-slate-600"><Check className="h-3 w-3 text-green-500" /></div>
-                    PDF must be clear and readable.
-                  </li>
-                  <li className="flex items-start gap-3 text-xs font-bold text-gray-600 dark:text-gray-300">
-                    <div className="h-5 w-5 rounded bg-white dark:bg-slate-700 flex items-center justify-center shrink-0 border border-gray-200 dark:border-slate-600"><Check className="h-3 w-3 text-green-500" /></div>
-                    Includes subject name and year.
-                  </li>
-                  <li className="flex items-start gap-3 text-xs font-bold text-gray-600 dark:text-gray-300">
-                    <div className="h-5 w-5 rounded bg-white dark:bg-slate-700 flex items-center justify-center shrink-0 border border-gray-200 dark:border-slate-600"><Check className="h-3 w-3 text-green-500" /></div>
-                    Maximum file size is 20MB.
-                  </li>
-               </ul>
+
+               <div className="space-y-0 relative">
+                  {/* Vertical Line Connector */}
+                  <div className="absolute left-[23px] top-4 bottom-4 w-1 bg-gradient-to-b from-university-accent/40 via-university-accent/10 to-transparent"></div>
+
+                  <RoadmapStep 
+                    number="01" 
+                    icon={<FileText className="h-5 w-5" />} 
+                    title="Document Readiness" 
+                    desc="Ensure your PDF is readable, oriented correctly, and under 20MB. Clear scans get approved faster." 
+                  />
+                  <RoadmapStep 
+                    number="02" 
+                    icon={<MousePointer2 className="h-5 w-5" />} 
+                    title="The Secure Drop" 
+                    desc="Drag your file into the vault dropzone. Our system performs a quick integrity check instantly." 
+                  />
+                  <RoadmapStep 
+                    number="03" 
+                    icon={<Database className="h-5 w-5" />} 
+                    title="Academic Tagging" 
+                    desc="Assign correct metadata (College, Subject, Semester). This helps peers find your material easily." 
+                  />
+                  <RoadmapStep 
+                    number="04" 
+                    icon={<UserCheck className="h-5 w-5" />} 
+                    title="Vault Validation" 
+                    desc="Administrators review the content quality. Upon approval, 5 credits are wired to your profile." 
+                    isLast 
+                  />
+               </div>
+            </div>
+
+            {/* Reward Card */}
+            <div className="bg-gradient-to-br from-university-accent to-orange-600 rounded-[2.5rem] p-8 text-white shadow-xl flex items-center gap-6">
+                <div className="bg-white/20 p-4 rounded-3xl backdrop-blur-md">
+                    <Award className="h-8 w-8" />
+                </div>
+                <div>
+                    <h4 className="font-bold text-lg leading-tight">Contribution Bonus</h4>
+                    <p className="text-white/80 text-xs font-medium mt-1">Unlock "Scholar" badge at 100 Credits.</p>
+                </div>
             </div>
           </div>
 
-          {/* Right Column: Submission Form (8 cols) */}
-          <div className="lg:col-span-8">
+          {/* Right Column: Submission Form (7 cols) */}
+          <div className="lg:col-span-7">
             {submitted ? (
               <div className="h-full min-h-[600px] flex flex-col items-center justify-center bg-white dark:bg-slate-900 rounded-[3rem] border-2 border-green-100 dark:border-green-900/30 p-12 text-center shadow-2xl animate-in zoom-in-95 duration-500 relative overflow-hidden">
-                {/* Success Animation Background */}
                 <div className="absolute inset-0 pointer-events-none opacity-50">
                     <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-green-500/10 rounded-full blur-[100px] animate-pulse"></div>
                 </div>
@@ -238,34 +250,11 @@ const SubmitPaper: React.FC<SubmitPaperProps> = ({ user, userSubmissions, onLogi
               </div>
             ) : (
               <div className="space-y-8">
-                
-                {/* Admin/User Guided Errors (The RLS/Bucket fixes from previous iterations) */}
-                {errorType === 'permission' && (
-                    <div className="bg-amber-50 dark:bg-amber-900/20 border-2 border-amber-500 rounded-[2.5rem] p-10 shadow-2xl animate-in slide-in-from-top-4">
-                        <div className="flex items-center gap-4 mb-4">
-                            <div className="p-3 bg-amber-500 rounded-2xl text-white"><Lock className="h-6 w-6" /></div>
-                            <h3 className="text-2xl font-serif font-bold text-amber-900 dark:text-amber-200">Policy Block (RLS)</h3>
-                        </div>
-                        <p className="text-sm text-amber-800 dark:text-amber-300 mb-8 leading-relaxed">
-                            Server permissions are blocking the upload. Fix this in your **Supabase Dashboard**:
-                        </p>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
-                            <div className="bg-white/50 dark:bg-black/20 p-4 rounded-2xl text-[11px] font-bold text-amber-900/70">1. Open Storage -> Policies</div>
-                            <div className="bg-white/50 dark:bg-black/20 p-4 rounded-2xl text-[11px] font-bold text-amber-900/70">2. Create New INSERT Policy</div>
-                            <div className="bg-white/50 dark:bg-black/20 p-4 rounded-2xl text-[11px] font-bold text-amber-900/70">3. Target "authenticated" & "anon"</div>
-                            <div className="bg-white/50 dark:bg-black/20 p-4 rounded-2xl text-[11px] font-bold text-amber-900/70">4. Set Expression to "true"</div>
-                        </div>
-                        <a href="https://supabase.com/dashboard/project/sjptcgmjokirbgeuehhm/storage/policies" target="_blank" className="inline-flex items-center gap-3 px-8 py-4 bg-amber-600 hover:bg-amber-700 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl transition-all">
-                            Open Settings <ExternalLink className="h-4 w-4" />
-                        </a>
-                    </div>
-                )}
-
                 <div className="bg-white dark:bg-slate-900 rounded-[3rem] p-10 md:p-14 shadow-2xl border border-gray-100 dark:border-slate-800 relative">
                     <form onSubmit={handleSubmit} className="space-y-10">
                         
                         {/* Error Banner */}
-                        {error && !errorType && (
+                        {error && (
                             <div className="p-5 bg-red-50 dark:bg-red-900/20 border-2 border-red-100 dark:border-red-900/30 rounded-2xl flex items-center gap-4 animate-in slide-in-from-top-2">
                                 <div className="p-2 bg-red-100 dark:bg-red-900/50 rounded-lg"><ShieldAlert className="h-5 w-5 text-red-600 dark:text-red-400" /></div>
                                 <p className="text-xs text-red-700 dark:text-red-300 font-black uppercase tracking-widest">{error}</p>
@@ -274,7 +263,7 @@ const SubmitPaper: React.FC<SubmitPaperProps> = ({ user, userSubmissions, onLogi
 
                         {/* Interactive Dropzone */}
                         <div className="space-y-4">
-                            <label className="text-[10px] font-black uppercase tracking-[0.3em] text-gray-400 ml-2 block">1. Upload PDF Document</label>
+                            <label className="text-[10px] font-black uppercase tracking-[0.3em] text-gray-400 ml-2 block">1. File Selection</label>
                             <div 
                                 className={`group relative h-72 border-4 border-dashed rounded-[2.5rem] flex flex-col items-center justify-center transition-all duration-500 cursor-pointer overflow-hidden ${
                                     dragActive ? 'border-university-accent bg-university-accent/5 scale-[1.02]' : 
@@ -292,14 +281,7 @@ const SubmitPaper: React.FC<SubmitPaperProps> = ({ user, userSubmissions, onLogi
                                             <FileCheck className="h-10 w-10 text-green-600" />
                                         </div>
                                         <p className="font-bold text-gray-900 dark:text-white text-lg">{file.name}</p>
-                                        <p className="text-[10px] text-green-600 font-black uppercase tracking-widest mt-2">{(file.size / 1024 / 1024).toFixed(2)} MB • Ready for Vault</p>
-                                        <button 
-                                            type="button" 
-                                            onClick={(e) => { e.stopPropagation(); setFile(null); }}
-                                            className="mt-6 px-4 py-2 rounded-xl bg-white dark:bg-slate-800 text-[10px] font-black uppercase tracking-widest text-red-500 hover:bg-red-50 transition-colors border border-gray-100 dark:border-slate-700 shadow-sm"
-                                        >
-                                            Change File
-                                        </button>
+                                        <p className="text-[10px] text-green-600 font-black uppercase tracking-widest mt-2">{(file.size / 1024 / 1024).toFixed(2)} MB • Ready</p>
                                     </div>
                                 ) : (
                                     <div className="text-center group-hover:scale-105 transition-transform duration-500">
@@ -321,26 +303,26 @@ const SubmitPaper: React.FC<SubmitPaperProps> = ({ user, userSubmissions, onLogi
 
                         {/* Metadata Selection */}
                         <div className="space-y-8">
-                            <label className="text-[10px] font-black uppercase tracking-[0.3em] text-gray-400 ml-2 block">2. Categorize Your Material</label>
+                            <label className="text-[10px] font-black uppercase tracking-[0.3em] text-gray-400 ml-2 block">2. Academic Information</label>
                             
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                                 <div className="space-y-4">
                                     <CustomSelect 
-                                        label="College Institution" 
+                                        label="Source Institution" 
                                         value={collegeId} 
                                         onChange={(e) => setCollegeId(e.target.value)}
                                         options={COLLEGES.filter(c => c.id !== 'all').map(c => ({ value: c.id, label: c.name }))}
-                                        placeholder="Select Source College"
+                                        placeholder="Select College"
                                     />
                                     <CustomSelect 
-                                        label="Honors Subject" 
+                                        label="Honors Paper / Subject" 
                                         value={subjectId} 
                                         onChange={(e) => setSubjectId(e.target.value)}
                                         options={SUBJECTS.filter(s => s.id !== 'all').map(s => ({ value: s.id, label: s.name }))}
-                                        placeholder="Select Department"
+                                        placeholder="Select Subject"
                                     />
                                     <CustomSelect 
-                                        label="Target Semester" 
+                                        label="Course Semester" 
                                         value={semester} 
                                         onChange={(e) => setSemester(e.target.value)}
                                         options={SEMESTERS.map(s => ({ value: s.toString(), label: `Semester ${s}` }))}
@@ -349,14 +331,14 @@ const SubmitPaper: React.FC<SubmitPaperProps> = ({ user, userSubmissions, onLogi
                                 </div>
                                 <div className="space-y-4">
                                     <CustomSelect 
-                                        label="Degree Level" 
+                                        label="Level of Study" 
                                         value={degreeLevel} 
                                         onChange={(e) => setDegreeLevel(e.target.value as DegreeLevel)}
                                         options={[{ value: DegreeLevel.UG, label: 'Undergraduate (UG)' }, { value: DegreeLevel.PG, label: 'Postgraduate (PG)' }]}
-                                        placeholder="Select Degree Level"
+                                        placeholder="Select Level"
                                     />
                                     <CustomSelect 
-                                        label="Curriculum Pattern" 
+                                        label="Examination Pattern" 
                                         value={pattern} 
                                         onChange={(e) => setPattern(e.target.value as CoursePattern)}
                                         options={[{ value: CoursePattern.NEP, label: 'NEP (New Policy)' }, { value: CoursePattern.CBCS, label: 'CBCS (Old Pattern)' }]}
@@ -364,7 +346,7 @@ const SubmitPaper: React.FC<SubmitPaperProps> = ({ user, userSubmissions, onLogi
                                     />
                                     
                                     <div>
-                                        <label className="text-[9px] font-black uppercase tracking-widest text-gray-400 mb-2 block ml-1">Resource Category</label>
+                                        <label className="text-[9px] font-black uppercase tracking-widest text-gray-400 mb-2 block ml-1">Document Type</label>
                                         <div className="grid grid-cols-3 gap-2">
                                             {[ResourceType.PYQ, ResourceType.NOTE, ResourceType.SYLLABUS].map((t) => (
                                                 <button 
@@ -398,12 +380,12 @@ const SubmitPaper: React.FC<SubmitPaperProps> = ({ user, userSubmissions, onLogi
                                     {isSubmitting ? (
                                         <><Clock className="animate-spin h-6 w-6" /> <span className="font-black text-xs uppercase tracking-[0.3em]">Processing Secure Upload...</span></>
                                     ) : (
-                                        <><Award className="h-6 w-6 group-hover:rotate-12 transition-transform" /> <span className="font-black text-xs uppercase tracking-[0.3em]">Authenticate & Upload to Vault</span></>
+                                        <><Award className="h-6 w-6 group-hover:rotate-12 transition-transform" /> <span className="font-black text-xs uppercase tracking-[0.3em]">Authenticate & Commit to Vault</span></>
                                     )}
                                 </div>
                             </button>
-                            <p className="text-center text-[9px] text-gray-400 font-bold uppercase tracking-widest mt-6">
-                                By uploading, you agree to our Terms of Service & educational guidelines.
+                            <p className="text-center text-[9px] text-gray-400 font-bold uppercase tracking-widest mt-6 leading-relaxed">
+                                By committing, you verify this content is academically relevant and does not violate copyright.
                             </p>
                         </div>
                     </form>
@@ -421,14 +403,21 @@ const SubmitPaper: React.FC<SubmitPaperProps> = ({ user, userSubmissions, onLogi
 
 // --- Helper Components ---
 
-const PerkItem = ({ icon, title, desc }: { icon: any, title: string, desc: string }) => (
-    <div className="flex items-start gap-4 p-5 rounded-[1.5rem] bg-gray-50 dark:bg-slate-800/40 border border-transparent hover:border-gray-200 dark:hover:border-slate-700 transition-all group">
-        <div className="p-3 rounded-2xl bg-white dark:bg-slate-800 shadow-md group-hover:scale-110 transition-transform">
-            {icon}
+const RoadmapStep = ({ number, icon, title, desc, isLast }: { number: string, icon: any, title: string, desc: string, isLast?: boolean }) => (
+    <div className={`relative flex gap-8 ${!isLast ? 'pb-10' : ''} group`}>
+        <div className="relative z-10">
+            <div className="w-12 h-12 rounded-2xl bg-university-accent text-white flex items-center justify-center shadow-lg shadow-university-accent/30 group-hover:scale-110 transition-transform duration-300">
+                {icon}
+            </div>
+            <div className="absolute -top-2 -right-2 bg-university-900 dark:bg-slate-700 text-white text-[8px] font-black w-5 h-5 rounded-full flex items-center justify-center border-2 border-white dark:border-slate-800">
+                {number}
+            </div>
         </div>
-        <div>
-            <h4 className="font-black text-xs uppercase tracking-widest text-slate-900 dark:text-white mb-1">{title}</h4>
-            <p className="text-xs text-slate-500 dark:text-slate-400 font-medium leading-relaxed">{desc}</p>
+        <div className="pt-1">
+            <h4 className="font-serif font-bold text-lg text-slate-900 dark:text-white mb-1 group-hover:text-university-accent transition-colors">{title}</h4>
+            <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed font-medium">
+                {desc}
+            </p>
         </div>
     </div>
 );

@@ -22,10 +22,10 @@ import Footer from './components/Footer.tsx';
 import AIChat from './components/AIChat.tsx';
 import TermsOfService from './components/TermsOfService.tsx';
 import LoginModal from './components/LoginModal.tsx';
-import { ResourceType, CoursePattern, DegreeLevel, FilterState, User, Submission, Resource, AssessmentResult, LoginRecord } from './types.ts'; 
+import Logo from './components/Logo.tsx';
+import { ResourceType, CoursePattern, DegreeLevel, FilterState, User, Submission, Resource, AssessmentResult, LoginRecord, Order } from './types.ts'; 
 import { SUBJECTS, COLLEGES } from './constants.ts';
-// Fixed: Added ArrowRight to the imports from lucide-react
-import { ChevronRight, Home, CalendarCheck, Info, Upload, ShieldCheck, ScrollText, PenTool, Loader2, History, Bookmark, CheckCircle, XCircle, User as UserIcon, Send, Sparkles, ArrowRight } from 'lucide-react';
+import { ChevronRight, Home, CalendarCheck, Info, Upload, ShieldCheck, ScrollText, PenTool, Loader2, History, Bookmark, CheckCircle, XCircle, User as UserIcon, Send, Sparkles, ArrowRight, Database, ExternalLink } from 'lucide-react';
 import { db } from './services/db.ts';
 import { supabase } from './services/supabase.ts';
 
@@ -38,9 +38,11 @@ const App: React.FC = () => {
 
   // Data State
   const [allResources, setAllResources] = useState<Resource[]>([]);
+  const [allProfiles, setAllProfiles] = useState<User[]>([]);
   const [user, setUser] = useState<User | null>(null);
   const [loginRecords, setLoginRecords] = useState<LoginRecord[]>([]);
   const [submissions, setSubmissions] = useState<Submission[]>([]);
+  const [orders, setOrders] = useState<Order[]>([]);
   
   // Order State
   const [orderData, setOrderData] = useState({ subject: '', semester: '', details: '' });
@@ -57,13 +59,25 @@ const App: React.FC = () => {
     const initData = async () => {
       try {
         const resources = await db.getAllResources();
-        setAllResources(resources);
+        // Filter out mock data if any real data exists
+        const realResources = resources.filter(r => !r.id.startsWith('res-'));
+        if (realResources.length > 0) {
+            setAllResources(realResources);
+        } else {
+            setAllResources(resources); // Keep mock data for UI visual if empty
+        }
 
         const history = await db.getLoginHistory();
         setLoginRecords(history);
 
         const subs = await db.getAllSubmissions();
         setSubmissions(subs);
+
+        const paperRequests = await db.getAllOrders();
+        setOrders(paperRequests);
+
+        const profiles = await db.getAllProfiles();
+        setAllProfiles(profiles);
       } catch (error) {
         console.error("Failed to load database:", error);
       } finally {
@@ -91,6 +105,9 @@ const App: React.FC = () => {
                 };
                 await db.saveUser(newUser);
                 setUser(newUser);
+                // Refresh full profiles list
+                const profiles = await db.getAllProfiles();
+                setAllProfiles(profiles);
             }
         } else {
             setUser(null);
@@ -146,6 +163,10 @@ const App: React.FC = () => {
     await db.addLoginRecord(newRecord);
     setLoginRecords(prev => [newRecord, ...prev]);
     
+    // Refresh all profiles to ensure admin sees latest
+    const profiles = await db.getAllProfiles();
+    setAllProfiles(profiles);
+
     showToast("Welcome back!");
   };
 
@@ -210,6 +231,9 @@ const App: React.FC = () => {
       showToast("Paper request (Order) submitted to Supabase!");
       setOrderData({ subject: '', semester: '', details: '' });
       setView('subjects');
+      // Refresh orders
+      const paperRequests = await db.getAllOrders();
+      setOrders(paperRequests);
     } catch (err: any) {
       showToast(err.message, "error");
     }
@@ -297,6 +321,11 @@ const App: React.FC = () => {
   const handleDeleteResource = async (id: string) => {
     await db.deleteResource(id);
     setAllResources(prev => prev.filter(r => r.id !== id));
+  };
+
+  const handleDeleteOrder = async (id: string) => {
+    await db.deleteOrder(id);
+    setOrders(prev => prev.filter(o => o.id !== id));
   };
 
   const [activeSubjectId, setActiveSubjectId] = useState<string | null>(null);
@@ -467,6 +496,10 @@ const App: React.FC = () => {
     }
   };
 
+  const isRealDataEmpty = useMemo(() => {
+      return !allResources.some(r => !r.id.startsWith('res-'));
+  }, [allResources]);
+
   if (loading) {
       return (
           <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-slate-950">
@@ -480,13 +513,16 @@ const App: React.FC = () => {
         <AdminDashboard
            submissions={submissions}
            resources={allResources}
+           orders={orders}
            loginRecords={loginRecords}
+           allProfiles={allProfiles}
            onApprove={handleApproveSubmission}
            onReject={handleRejectSubmission}
            onUpdateSubmission={handleUpdateSubmission}
            onDeleteSubmission={handleDeleteSubmission}
            onAddResource={handleAdminAddResource}
            onDeleteResource={handleDeleteResource}
+           onDeleteOrder={handleDeleteOrder}
            onExit={() => setView('subjects')}
         />
      );
@@ -593,12 +629,26 @@ const App: React.FC = () => {
         </div>
       )}
 
+      {/* Database Setup Helper Banner (Visible to owner only when empty) */}
+      {isRealDataEmpty && view === 'subjects' && (
+          <div className="bg-university-900 text-white py-3 px-4 relative z-50 flex flex-col md:flex-row items-center justify-center gap-4 text-center">
+              <div className="flex items-center gap-2">
+                  <Database className="h-5 w-5 text-university-accent animate-pulse" />
+                  <span className="text-sm font-bold">Your Supabase database is connected but currently empty.</span>
+              </div>
+              <button 
+                onClick={() => setView('admin')}
+                className="bg-white text-university-900 px-6 py-1.5 rounded-full text-xs font-black uppercase tracking-widest hover:bg-university-accent hover:text-white transition-all shadow-lg flex items-center gap-2"
+              >
+                  Go to Manual Upload <ExternalLink className="h-3.5 w-3.5" />
+              </button>
+          </div>
+      )}
+
       <div className="fixed inset-0 z-0 pointer-events-none flex items-center justify-center overflow-hidden">
-         <img 
-            src="/logo.png" 
-            alt="" 
-            className="w-[500px] h-[500px] object-contain opacity-[0.03] dark:opacity-[0.05] blur-[1px] grayscale"
-         />
+         <div className="w-[500px] h-[500px] flex items-center justify-center opacity-[0.03] dark:opacity-[0.05] grayscale blur-[1px]">
+            <Logo size="xl" showText={false} />
+         </div>
       </div>
 
       <div className="relative z-10 flex flex-col min-h-screen">

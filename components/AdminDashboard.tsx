@@ -1,13 +1,13 @@
 
 import React, { useState, useRef, useEffect } from 'react';
-import { Submission, Resource, ResourceType, CoursePattern, DegreeLevel, LoginRecord } from '../types';
+import { Submission, Resource, ResourceType, CoursePattern, DegreeLevel, LoginRecord, Order, User } from '../types';
 import { 
   CheckCircle, XCircle, FileText, User as UserIcon, ShieldCheck, Mail, 
   Inbox, Archive, ArrowLeft, Paperclip, Check, X, LogOut, 
   LayoutDashboard, Users, Settings, Lock, Key, Loader2, 
   Stamp, FolderOpen, Trash2, Plus, Upload, Eye, Edit2, 
   Save, ExternalLink, Activity, Smartphone, ShieldAlert, AlertCircle, Download, Clock, HardDrive, Database, Copy, Terminal,
-  ArrowRight
+  ArrowRight, Info, AlertTriangle, RefreshCcw, Send, Globe, Fingerprint, Calendar, Building2
 } from 'lucide-react';
 import { PDFDocument, rgb, degrees, StandardFonts } from 'pdf-lib';
 import { SUBJECTS, SEMESTERS, PATTERNS, DEGREE_LEVELS, COLLEGES } from '../constants';
@@ -16,29 +16,41 @@ import { db } from '../services/db';
 interface AdminDashboardProps {
   submissions: Submission[];
   resources: Resource[];
+  orders: Order[];
   loginRecords: LoginRecord[];
+  allProfiles: User[];
   onApprove: (id: string) => void;
   onReject: (id: string) => void;
   onUpdateSubmission: (id: string, updates: Partial<Submission>) => void;
   onDeleteSubmission: (id: string) => void;
   onAddResource: (resource: Resource) => void;
   onDeleteResource: (id: string) => void;
+  onDeleteOrder: (id: string) => void;
   onExit: () => void;
 }
 
-type AdminView = 'dashboard' | 'inbox' | 'resources' | 'users' | 'activity' | 'settings' | 'setup';
+type AdminView = 'dashboard' | 'inbox' | 'resources' | 'orders' | 'users' | 'activity' | 'settings' | 'setup';
 
-const AdminDashboard: React.FC<AdminDashboardProps> = ({ submissions, resources, loginRecords, onApprove, onReject, onUpdateSubmission, onDeleteSubmission, onAddResource, onDeleteResource, onExit }) => {
+const AdminDashboard: React.FC<AdminDashboardProps> = ({ 
+    submissions, resources, orders, loginRecords, allProfiles, onApprove, onReject, 
+    onUpdateSubmission, onDeleteSubmission, onAddResource, onDeleteResource, 
+    onDeleteOrder, onExit 
+}) => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [adminPassword, setAdminPassword] = useState('admin');
+  
+  // Persistent Password State
+  const [adminPassword, setAdminPassword] = useState(() => {
+    return localStorage.getItem('studyvault_admin_secret') || 'admin';
+  });
+  
   const [error, setError] = useState('');
 
   const [activeView, setActiveView] = useState<AdminView>('dashboard');
   const [inboxStatusFilter, setInboxStatusFilter] = useState<'pending' | 'approved'>('pending');
-  const [selectedSubmissionId, setSelectedSubmissionId] = useState<string | null>(null);
   const [isProcessing, setIsProcessing] = useState<string | null>(null);
+  const [uploadStatus, setUploadStatus] = useState<string>('');
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   // Health State
@@ -58,19 +70,24 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ submissions, resources,
   const [dragActive, setDragActive] = useState(false);
   const uploadFileInputRef = useRef<HTMLInputElement>(null);
 
-  // Settings State
-  const [currentPwd, setCurrentPwd] = useState('');
-  const [newPwd, setNewPwd] = useState('');
-  const [confirmPwd, setConfirmPwd] = useState('');
-  const [settingsMsg, setSettingsMsg] = useState<{type: 'success'|'error', text: string} | null>(null);
+  // Settings/Password Change State
+  const [currentPassInput, setCurrentPassInput] = useState('');
+  const [newPassInput, setNewPassInput] = useState('');
+  const [confirmPassInput, setConfirmPassInput] = useState('');
+  const [settingsError, setSettingsError] = useState('');
+  const [settingsSuccess, setSettingsSuccess] = useState(false);
 
   const filteredInboxSubmissions = submissions.filter(s => s.status === inboxStatusFilter);
   const pendingCount = submissions.filter(s => s.status === 'pending').length;
+  const orderCount = orders.length;
   
   const uniqueUsers = Array.from(new Set(submissions.map(s => s.userIdentifier))).map((id: string) => {
       const userSubs = submissions.filter(s => s.userIdentifier === id);
+      const profile = allProfiles.find(p => p.identifier === id);
       return {
           identifier: id,
+          name: profile?.name || 'Unknown Student',
+          college: COLLEGES.find(c => c.id === profile?.collegeId)?.name || 'N/A',
           totalSubmissions: userSubs.length,
           approved: userSubs.filter(s => s.status === 'approved').length,
           rejected: userSubs.filter(s => s.status === 'rejected').length,
@@ -102,10 +119,16 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ submissions, resources,
   };
 
   const handleLogout = () => {
-    setIsAuthenticated(false);
-    setEmail('');
-    setPassword('');
-    setActiveView('dashboard');
+    if (window.confirm("Terminate admin session and return to main website?")) {
+        // 1. Clear local auth state
+        setIsAuthenticated(false);
+        setEmail('');
+        setPassword('');
+        setActiveView('dashboard');
+        
+        // 2. IMMEDIATELY fire onExit to tell parent App to switch view to 'subjects'
+        onExit();
+    }
   };
 
   const showToast = (msg: string) => {
@@ -113,163 +136,106 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ submissions, resources,
     setTimeout(() => setToastMessage(null), 4000);
   };
 
-  const MASTER_SQL = `-- 1. Create Tables (Safe)
-CREATE TABLE IF NOT EXISTS profiles (
-  id UUID PRIMARY KEY REFERENCES auth.users(id),
-  email TEXT,
-  name TEXT,
-  college_id TEXT,
-  credits INTEGER DEFAULT 0,
-  assessment_history JSONB DEFAULT '[]',
-  saved_resources TEXT[] DEFAULT '{}'
-);
-
-CREATE TABLE IF NOT EXISTS resources (
-  id TEXT PRIMARY KEY,
-  title TEXT,
-  college_id TEXT,
-  subject_id TEXT,
-  semester INTEGER,
-  year INTEGER,
-  type TEXT,
-  pattern TEXT,
-  degree_level TEXT,
-  download_url TEXT,
-  size TEXT,
-  download_count INTEGER DEFAULT 0,
-  created_at BIGINT
-);
-
-CREATE TABLE IF NOT EXISTS submissions (
-  id TEXT PRIMARY KEY,
-  user_id UUID REFERENCES auth.users(id),
-  user_identifier TEXT,
-  file_name TEXT,
-  file_path TEXT,
-  subject_id TEXT,
-  subject_name TEXT,
-  semester INTEGER,
-  type TEXT,
-  status TEXT DEFAULT 'pending',
-  timestamp BIGINT,
-  credits_earned INTEGER DEFAULT 0,
-  pattern TEXT,
-  degree_level TEXT,
-  college_id TEXT
-);
-
-CREATE TABLE IF NOT EXISTS orders (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id UUID REFERENCES auth.users(id),
-  email TEXT,
-  item_name TEXT,
-  subject TEXT,
-  semester TEXT,
-  details TEXT,
-  status TEXT DEFAULT 'pending',
-  timestamp BIGINT
-);
-
-CREATE TABLE IF NOT EXISTS login_history (
-  id TEXT PRIMARY KEY,
-  identifier TEXT,
-  timestamp BIGINT,
-  method TEXT
-);
-
--- 2. Enable RLS (Safe to re-run)
-ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
-ALTER TABLE resources ENABLE ROW LEVEL SECURITY;
-ALTER TABLE submissions ENABLE ROW LEVEL SECURITY;
-ALTER TABLE orders ENABLE ROW LEVEL SECURITY;
-
--- 3. Cleanup & Create Policies (Prevents 'Policy already exists' errors)
-
--- Profiles Policies
-DROP POLICY IF EXISTS "Public profiles are viewable by everyone" ON profiles;
-CREATE POLICY "Public profiles are viewable by everyone" ON profiles FOR SELECT USING (true);
-
-DROP POLICY IF EXISTS "Users can update own profile" ON profiles;
-CREATE POLICY "Users can update own profile" ON profiles FOR UPDATE USING (auth.uid() = id);
-
--- Resources Policies
-DROP POLICY IF EXISTS "Resources are public" ON resources;
-CREATE POLICY "Resources are public" ON resources FOR SELECT USING (true);
-
-DROP POLICY IF EXISTS "Admin can modify resources" ON resources;
-CREATE POLICY "Admin can modify resources" ON resources FOR ALL USING (auth.jwt()->>'email' = 'suryanshkishor@gmail.com');
-
--- Submissions Policies
-DROP POLICY IF EXISTS "Anyone can submit papers" ON submissions;
-CREATE POLICY "Anyone can submit papers" ON submissions FOR INSERT WITH CHECK (true);
-
-DROP POLICY IF EXISTS "Anyone can view submissions" ON submissions;
-CREATE POLICY "Anyone can view submissions" ON submissions FOR SELECT USING (true);
-
-DROP POLICY IF EXISTS "Admin can update submissions" ON submissions;
-CREATE POLICY "Admin can update submissions" ON submissions FOR UPDATE USING (auth.jwt()->>'email' = 'suryanshkishor@gmail.com');
-
--- Storage Policies (Buckets must be created manually first)
-DROP POLICY IF EXISTS "Storage - Allow Public Uploads" ON storage.objects;
-CREATE POLICY "Storage - Allow Public Uploads" ON storage.objects FOR INSERT WITH CHECK (bucket_id IN ('resources', 'submissions'));
-
-DROP POLICY IF EXISTS "Storage - Allow Public Access" ON storage.objects;
-CREATE POLICY "Storage - Allow Public Access" ON storage.objects FOR SELECT USING (bucket_id IN ('resources', 'submissions'));
-`;
-
-  const copySql = () => {
-    navigator.clipboard.writeText(MASTER_SQL);
-    showToast("SQL Script Copied to Clipboard!");
-  };
-
-  const handleSubmissionAction = async (id: string, action: 'approve' | 'reject') => {
-    if (action === 'approve') {
-       setIsProcessing(id);
-       await onApprove(id);
-       setIsProcessing(null);
-       setSelectedSubmissionId(null);
-       showToast("Student Rewarded. Verification Complete.");
+  const handleUploadFile = (file: File) => {
+    if (file.type === "application/pdf") {
+      if (file.size > 20 * 1024 * 1024) {
+        alert("File size exceeds 20MB limit.");
+        return;
+      }
+      setUploadFile(file);
+      if (!uploadTitle) {
+          setUploadTitle(file.name.replace('.pdf', ''));
+      }
     } else {
-       onReject(id);
-       setSelectedSubmissionId(null);
-       showToast("Submission Rejected.");
+      alert("Please upload a valid PDF file.");
     }
   };
 
   const handleDeleteResourceAction = (id: string) => {
-      if(window.confirm("Are you sure you want to delete this resource permanently?")) {
-          onDeleteResource(id);
-          showToast("Resource removed from Library.");
-      }
-  };
-
-  const handleUploadDrag = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    if (e.type === "dragenter" || e.type === "dragover") setDragActive(true);
-    else if (e.type === "dragleave") setDragActive(false);
-  };
-
-  const handleUploadDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setDragActive(false);
-    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-      handleUploadFile(e.dataTransfer.files[0]);
+    if (window.confirm("Are you sure you want to delete this resource? This action cannot be undone.")) {
+      onDeleteResource(id);
+      showToast("Resource deleted successfully.");
     }
   };
 
-  const handleUploadFile = (file: File) => {
-    if (file.type === "application/pdf") {
-      setUploadFile(file);
-      if (!uploadTitle) setUploadTitle(file.name.replace('.pdf', ''));
-    } else {
-      alert("Please upload a PDF file.");
+  const handleDeleteOrderAction = (id: string) => {
+    if (window.confirm("Mark this request as addressed and remove it from vault?")) {
+        onDeleteOrder(id);
+        showToast("Request addressed.");
     }
+  };
+
+  const handlePasswordUpdate = (e: React.FormEvent) => {
+    e.preventDefault();
+    setSettingsError('');
+    setSettingsSuccess(false);
+
+    if (currentPassInput !== adminPassword) {
+      setSettingsError('The current passcode you entered is incorrect.');
+      return;
+    }
+
+    if (newPassInput.length < 4) {
+      setSettingsError('New passcode must be at least 4 characters long.');
+      return;
+    }
+
+    if (newPassInput !== confirmPassInput) {
+      setSettingsError('New passwords do not match.');
+      return;
+    }
+
+    // Save to persistence
+    localStorage.setItem('studyvault_admin_secret', newPassInput);
+    setAdminPassword(newPassInput);
+    setSettingsSuccess(true);
+    setCurrentPassInput('');
+    setNewPassInput('');
+    setConfirmPassInput('');
+    
+    setTimeout(() => setSettingsSuccess(false), 3000);
+  };
+
+  const MASTER_SQL = `-- FINAL FIX FOR STORAGE ERRORS: RUN THIS IN SUPABASE SQL EDITOR
+
+-- 1. DELETE ANY CONFLICTING OLD POLICIES
+DROP POLICY IF EXISTS "Public Storage Access" ON storage.objects;
+DROP POLICY IF EXISTS "Any User Storage Access" ON storage.objects;
+DROP POLICY IF EXISTS "Storage: Public Access" ON storage.objects;
+DROP POLICY IF EXISTS "Allow All Storage Access" ON storage.objects;
+
+-- 2. CREATE MASTER STORAGE POLICY
+-- This allows both guest (anon) and logged-in (authenticated) users to upload to your buckets.
+CREATE POLICY "Master Storage Policy"
+ON storage.objects FOR ALL
+TO anon, authenticated
+USING (bucket_id IN ('resources', 'submissions'))
+WITH CHECK (bucket_id IN ('resources', 'submissions'));
+
+-- 3. ENSURE TABLE PERMISSIONS ARE ALSO WIDE OPEN
+DROP POLICY IF EXISTS "Unrestricted Resources" ON public.resources;
+CREATE POLICY "Unrestricted Resources" ON public.resources FOR ALL TO public USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Unrestricted Submissions" ON public.submissions;
+CREATE POLICY "Unrestricted Submissions" ON public.submissions FOR ALL TO public USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Unrestricted Profiles" ON public.profiles;
+CREATE POLICY "Unrestricted Profiles" ON public.profiles FOR ALL TO public USING (true) WITH CHECK (true);
+
+-- 4. FIX AUTH SCHEMA PERMISSIONS
+GRANT ALL ON TABLE public.resources TO anon, authenticated;
+GRANT ALL ON TABLE public.submissions TO anon, authenticated;
+GRANT ALL ON TABLE public.profiles TO anon, authenticated;
+`;
+
+  const copySql = () => {
+    navigator.clipboard.writeText(MASTER_SQL);
+    showToast("SQL Copied! Run this in Supabase.");
   };
 
   const applyWatermark = async (fileUrl: string): Promise<string> => {
     try {
+        setUploadStatus('Applying Security Watermark...');
         const pdfBytes = await fetch(fileUrl).then(res => res.arrayBuffer());
         const pdfDoc = await PDFDocument.load(pdfBytes);
         const font = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
@@ -285,7 +251,7 @@ CREATE POLICY "Storage - Allow Public Access" ON storage.objects FOR SELECT USIN
                 y: height / 2 - 50,
                 size: textSize,
                 font: font,
-                color: rgb(0.9, 0.1, 0.1),
+                color: rgb(0.8, 0.8, 0.8),
                 opacity: 0.1,
                 rotate: degrees(45),
             });
@@ -295,7 +261,7 @@ CREATE POLICY "Storage - Allow Public Access" ON storage.objects FOR SELECT USIN
         const blob = new Blob([modifiedPdfBytes], { type: 'application/pdf' });
         return URL.createObjectURL(blob);
     } catch (e) {
-        console.error("Watermark failed", e);
+        console.warn("Watermarking failed, proceeding with original", e);
         return fileUrl;
     }
   };
@@ -303,24 +269,31 @@ CREATE POLICY "Storage - Allow Public Access" ON storage.objects FOR SELECT USIN
   const handleUploadSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!uploadFile || !uploadSubject || !uploadSemester || !uploadType || !uploadTitle || !uploadPattern || !uploadDegree || !uploadCollege) {
-        alert("All metadata fields are mandatory.");
+        alert("All metadata fields (Title, College, Subject, etc.) are mandatory.");
         return;
     }
     
     setIsProcessing('upload');
+    setUploadStatus('Initializing Secure Upload...');
+    
     try {
+        // Step 1: Watermark
         const tempUrl = URL.createObjectURL(uploadFile);
         const finalUrl = await applyWatermark(tempUrl);
         const response = await fetch(finalUrl);
         const blob = await response.blob();
         
-        const resourceId = `admin-up-${Date.now()}`;
+        // Step 2: Storage
+        setUploadStatus('Transferring to Supabase Storage...');
+        const resourceId = `up-${Date.now()}`;
         const publicUrl = await db.saveFile(resourceId, blob);
         
         if (!publicUrl) {
-            throw new Error("Storage upload failed. Check if 'resources' bucket exists.");
+            throw new Error("Storage rejected the file. Please re-run the Master SQL in Supabase and ensure the bucket is PUBLIC.");
         }
 
+        // Step 3: Database
+        setUploadStatus('Finalizing Database Record...');
         const newResource: Resource = {
             id: resourceId,
             title: uploadTitle,
@@ -339,14 +312,16 @@ CREATE POLICY "Storage - Allow Public Access" ON storage.objects FOR SELECT USIN
 
         await onAddResource(newResource);
         
-        showToast("Success! Published to public library.");
+        setUploadStatus('');
+        showToast("Publication Successful!");
         setIsUploadModalOpen(false);
         resetForm();
     } catch (err: any) {
-        console.error(err);
-        alert(`Failed to publish: ${err.message}`);
+        console.error("Manual Upload Error:", err);
+        alert(`UPLOAD FAILED: ${err.message}. \n\nFIX: Go to 'Infrastructure Setup' tab, copy the SQL, and run it in Supabase.`);
     } finally {
         setIsProcessing(null);
+        setUploadStatus('');
     }
   };
 
@@ -359,39 +334,6 @@ CREATE POLICY "Storage - Allow Public Access" ON storage.objects FOR SELECT USIN
     setUploadPattern('');
     setUploadDegree('');
     setUploadCollege('');
-  };
-
-  const handleReviewDownload = async (subId: string) => {
-      const url = await db.getFileUrl(`sub-${subId}`);
-      if (url) {
-          window.open(url, '_blank');
-      } else {
-          alert("File link missing.");
-      }
-  };
-
-  const handleChangePassword = (e: React.FormEvent) => {
-    e.preventDefault();
-    setSettingsMsg(null);
-
-    if (currentPwd !== adminPassword) {
-      setSettingsMsg({ type: 'error', text: 'Current password is incorrect.' });
-      return;
-    }
-    if (newPwd.length < 4) {
-      setSettingsMsg({ type: 'error', text: 'Minimum 4 characters required.' });
-      return;
-    }
-    if (newPwd !== confirmPwd) {
-      setSettingsMsg({ type: 'error', text: 'Passwords do not match.' });
-      return;
-    }
-
-    setAdminPassword(newPwd);
-    setSettingsMsg({ type: 'success', text: 'Password changed.' });
-    setCurrentPwd('');
-    setNewPwd('');
-    setConfirmPwd('');
   };
 
   if (!isAuthenticated) {
@@ -484,10 +426,10 @@ CREATE POLICY "Storage - Allow Public Access" ON storage.objects FOR SELECT USIN
 
               <form onSubmit={handleUploadSubmit} className="space-y-6">
                  <div 
-                   onDragEnter={handleUploadDrag} 
-                   onDragOver={handleUploadDrag} 
-                   onDragLeave={handleUploadDrag} 
-                   onDrop={handleUploadDrop}
+                   onDragEnter={(e) => { e.preventDefault(); setDragActive(true); }} 
+                   onDragOver={(e) => { e.preventDefault(); setDragActive(true); }} 
+                   onDragLeave={() => setDragActive(false)} 
+                   onDrop={(e) => { e.preventDefault(); setDragActive(false); if (e.dataTransfer.files[0]) handleUploadFile(e.dataTransfer.files[0]); }}
                    onClick={() => uploadFileInputRef.current?.click()}
                    className={`relative border-2 border-dashed rounded-2xl p-10 text-center transition-all cursor-pointer ${
                      dragActive ? 'border-university-accent bg-university-accent/5' : 
@@ -500,7 +442,7 @@ CREATE POLICY "Storage - Allow Public Access" ON storage.objects FOR SELECT USIN
                       <div className="flex flex-col items-center">
                          <FileText className="h-12 w-12 text-green-500 mb-2" />
                          <p className="font-bold text-gray-900 dark:text-white">{uploadFile.name}</p>
-                         <p className="text-xs text-gray-400 mt-1 uppercase font-bold tracking-widest">{(uploadFile.size / 1024 / 1024).toFixed(2)} MB • Ready</p>
+                         <p className="text-[10px] text-green-600 font-black uppercase tracking-widest mt-2">{(uploadFile.size / 1024 / 1024).toFixed(2)} MB • Ready</p>
                       </div>
                     ) : (
                       <div className="flex flex-col items-center">
@@ -511,72 +453,78 @@ CREATE POLICY "Storage - Allow Public Access" ON storage.objects FOR SELECT USIN
                     )}
                  </div>
 
-                 <div>
-                    <label className="block text-[10px] font-bold text-gray-500 mb-2 uppercase tracking-widest">Resource Display Title</label>
-                    <input 
-                      type="text" 
-                      value={uploadTitle}
-                      onChange={(e) => setUploadTitle(e.target.value)}
-                      className="w-full p-4 bg-gray-50 dark:bg-slate-800 border-2 border-transparent focus:border-university-accent rounded-xl focus:outline-none transition-all dark:text-white"
-                      placeholder="e.g. Physics CC-3 (2024) - Mechanics"
-                    />
-                 </div>
-
                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="md:col-span-2">
+                        <label className="block text-[10px] font-bold text-gray-500 mb-2 uppercase tracking-widest">Resource Display Title</label>
+                        <input 
+                          type="text" 
+                          value={uploadTitle}
+                          onChange={(e) => setUploadTitle(e.target.value)}
+                          className="w-full p-4 bg-gray-50 dark:bg-slate-800 border-2 border-transparent focus:border-university-accent rounded-xl focus:outline-none transition-all dark:text-white"
+                          placeholder="e.g. Physics CC-3 (2024) - Mechanics"
+                        />
+                    </div>
                     <div>
-                        <label className="block text-[10px] font-bold text-gray-500 mb-2 uppercase tracking-widest">Select College</label>
+                        <label className="block text-[10px] font-bold text-gray-500 mb-2 uppercase tracking-widest">Institution</label>
                         <select value={uploadCollege} onChange={(e) => setUploadCollege(e.target.value)} className="w-full p-4 bg-gray-50 dark:bg-slate-800 rounded-xl border-none outline-none dark:text-white">
-                           <option value="">Choose Institution</option>
+                           <option value="">Choose College</option>
                            {COLLEGES.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                         </select>
                     </div>
                     <div>
-                        <label className="block text-[10px] font-bold text-gray-500 mb-2 uppercase tracking-widest">Subject Honors</label>
+                        <label className="block text-[10px] font-bold text-gray-500 mb-2 uppercase tracking-widest">Honors Subject</label>
                         <select value={uploadSubject} onChange={(e) => setUploadSubject(e.target.value)} className="w-full p-4 bg-gray-50 dark:bg-slate-800 rounded-xl border-none outline-none dark:text-white">
-                           <option value="">Choose Department</option>
+                           <option value="">Choose Dept</option>
                            {SUBJECTS.filter(s => s.id !== 'all').map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
                         </select>
                     </div>
                     <div>
-                        <label className="block text-[10px] font-bold text-gray-500 mb-2 uppercase tracking-widest">Target Semester</label>
+                        <label className="block text-[10px] font-bold text-gray-500 mb-2 uppercase tracking-widest">Semester</label>
                         <select value={uploadSemester} onChange={(e) => setUploadSemester(e.target.value)} className="w-full p-4 bg-gray-50 dark:bg-slate-800 rounded-xl border-none outline-none dark:text-white">
-                           <option value="">Choose Semester</option>
-                           {SEMESTERS.map(s => <option key={s} value={s}>Semester {s}</option>)}
+                           <option value="">Semester</option>
+                           {SEMESTERS.map(s => <option key={s} value={s}>Sem {s}</option>)}
                         </select>
                     </div>
                     <div>
                         <label className="block text-[10px] font-bold text-gray-500 mb-2 uppercase tracking-widest">Material Type</label>
                         <select value={uploadType} onChange={(e) => setUploadType(e.target.value as any)} className="w-full p-4 bg-gray-50 dark:bg-slate-800 rounded-xl border-none outline-none dark:text-white">
-                           <option value="">Choose Type</option>
-                           <option value={ResourceType.PYQ}>Question Paper</option>
-                           <option value={ResourceType.NOTE}>Lecture Notes</option>
+                           <option value="">Select Type</option>
+                           <option value={ResourceType.PYQ}>Paper</option>
+                           <option value={ResourceType.NOTE}>Notes</option>
                            <option value={ResourceType.SYLLABUS}>Syllabus</option>
                         </select>
                     </div>
                     <div>
-                        <label className="block text-[10px] font-bold text-gray-500 mb-2 uppercase tracking-widest">Degree Level</label>
+                        <label className="block text-[10px] font-bold text-gray-500 mb-2 uppercase tracking-widest">Level</label>
                         <select value={uploadDegree} onChange={(e) => setUploadDegree(e.target.value as any)} className="w-full p-4 bg-gray-50 dark:bg-slate-800 rounded-xl border-none outline-none dark:text-white">
-                           <option value="">Choose Level</option>
-                           <option value={DegreeLevel.UG}>Undergraduate (UG)</option>
-                           <option value={DegreeLevel.PG}>Postgraduate (PG)</option>
+                           <option value="">Select Level</option>
+                           <option value={DegreeLevel.UG}>UG</option>
+                           <option value={DegreeLevel.PG}>PG</option>
                         </select>
                     </div>
                     <div>
-                        <label className="block text-[10px] font-bold text-gray-500 mb-2 uppercase tracking-widest">Curriculum Pattern</label>
+                        <label className="block text-[10px] font-bold text-gray-500 mb-2 uppercase tracking-widest">Curriculum</label>
                         <select value={uploadPattern} onChange={(e) => setUploadPattern(e.target.value as any)} className="w-full p-4 bg-gray-50 dark:bg-slate-800 rounded-xl border-none outline-none dark:text-white">
-                           <option value="">Choose Pattern</option>
-                           <option value={CoursePattern.CBCS}>CBCS (Old)</option>
-                           <option value={CoursePattern.NEP}>NEP (New)</option>
+                           <option value="">Select Pattern</option>
+                           <option value={CoursePattern.CBCS}>CBCS</option>
+                           <option value={CoursePattern.NEP}>NEP</option>
                         </select>
                     </div>
                  </div>
+
+                 {isProcessing === 'upload' && (
+                     <div className="p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-900/50 rounded-xl flex items-center gap-3">
+                         <Loader2 className="h-4 w-4 animate-spin text-blue-600" />
+                         <span className="text-xs font-bold text-blue-800 dark:text-blue-300">{uploadStatus}</span>
+                     </div>
+                 )}
 
                  <button 
                     type="submit" 
                     disabled={isProcessing === 'upload' || !uploadFile}
                     className="w-full py-5 bg-university-900 hover:bg-black text-white font-bold rounded-2xl shadow-xl shadow-university-900/20 flex items-center justify-center gap-3 transition-all disabled:opacity-50"
                  >
-                    {isProcessing === 'upload' ? <><Loader2 className="h-5 w-5 animate-spin" /> Watermarking & Uploading...</> : <><Stamp className="h-5 w-5" /> Authenticate & Publish</>}
+                    {isProcessing === 'upload' ? 'Processing...' : <><Stamp className="h-5 w-5" /> Authenticate & Publish</>}
                  </button>
               </form>
            </div>
@@ -594,14 +542,19 @@ CREATE POLICY "Storage - Allow Public Access" ON storage.objects FOR SELECT USIN
             </div>
          </div>
          
-         <nav className="flex-1 p-6 space-y-3">
+         <nav className="flex-1 p-6 space-y-3 overflow-y-auto no-scrollbar">
             <SidebarItem icon={<LayoutDashboard />} label="Summary" active={activeView === 'dashboard'} onClick={() => setActiveView('dashboard')} />
             <SidebarItem icon={<Inbox />} label="Submission Inbox" active={activeView === 'inbox'} onClick={() => setActiveView('inbox')} badge={pendingCount} />
+            <SidebarItem icon={<Send />} label="Request Vault" active={activeView === 'orders'} onClick={() => setActiveView('orders')} badge={orderCount} />
             <SidebarItem icon={<FolderOpen />} label="Manage Library" active={activeView === 'resources'} onClick={() => setActiveView('resources')} />
             <SidebarItem icon={<Users />} label="Student Base" active={activeView === 'users'} onClick={() => setActiveView('users')} />
             <SidebarItem icon={<Activity />} label="Security Logs" active={activeView === 'activity'} onClick={() => setActiveView('activity')} />
             <SidebarItem icon={<Terminal />} label="Infrastructure Setup" active={activeView === 'setup'} onClick={() => setActiveView('setup')} />
             <SidebarItem icon={<Settings />} label="System Config" active={activeView === 'settings'} onClick={() => setActiveView('settings')} />
+            
+            <div className="pt-4 border-t border-white/5">
+                <SidebarItem icon={<Globe />} label="Return to Website" active={false} onClick={onExit} />
+            </div>
          </nav>
          
          <div className="p-6 border-t border-white/5 bg-black/20">
@@ -621,7 +574,25 @@ CREATE POLICY "Storage - Allow Public Access" ON storage.objects FOR SELECT USIN
          </div>
       </aside>
 
-      <main className="flex-1 ml-72 p-12 overflow-y-auto">
+      <main className="flex-1 ml-72 p-12 overflow-y-auto relative">
+         {/* Top Header Row for consistent Logout access */}
+         <div className="flex justify-end mb-8 sticky top-0 z-10 -mt-6 pt-6 pb-4 bg-gray-50 dark:bg-slate-950/80 backdrop-blur-md">
+             <div className="flex gap-3">
+                 <button 
+                    onClick={onExit}
+                    className="flex items-center gap-2 px-6 py-2.5 rounded-xl bg-white dark:bg-slate-900 border border-gray-100 dark:border-slate-800 text-slate-500 dark:text-slate-400 hover:text-university-accent transition-all text-xs font-bold"
+                 >
+                    <Globe className="h-4 w-4" /> View Site
+                 </button>
+                 <button 
+                    onClick={handleLogout}
+                    className="flex items-center gap-2 px-6 py-2.5 rounded-xl bg-red-500 text-white shadow-lg shadow-red-500/20 hover:bg-red-600 transition-all text-xs font-bold"
+                 >
+                    <LogOut className="h-4 w-4" /> Sign Out
+                 </button>
+             </div>
+         </div>
+
          {activeView === 'dashboard' && (
             <div className="animate-in fade-in slide-in-from-bottom-6 duration-700">
                <div className="mb-12 flex justify-between items-start">
@@ -659,17 +630,17 @@ CREATE POLICY "Storage - Allow Public Access" ON storage.objects FOR SELECT USIN
 
                        {Object.values(healthStatus).some(v => v === false) && (
                            <div className="mt-8 p-6 bg-amber-50 dark:bg-amber-900/10 border-2 border-dashed border-amber-200 dark:border-amber-900/30 rounded-3xl flex items-start gap-4">
-                               <AlertCircle className="h-6 w-6 text-amber-600 dark:text-amber-400 mt-1 shrink-0" />
+                               <AlertTriangle className="h-6 w-6 text-amber-600 dark:text-amber-400 mt-1 shrink-0" />
                                <div>
-                                   <p className="text-sm font-black text-amber-900 dark:text-amber-200 uppercase tracking-widest">Configuration Required</p>
+                                   <p className="text-sm font-black text-amber-900 dark:text-amber-200 uppercase tracking-widest">Setup Incomplete (2 Red Boxes?)</p>
                                    <p className="text-xs text-amber-700 dark:text-amber-400 mt-2 leading-relaxed">
-                                       Some database components or storage buckets are missing. You can fix this instantly using our <strong>Setup SQL Generator</strong>.
+                                       If storage boxes are red, it means policies or buckets are missing.
                                    </p>
                                    <button 
                                       onClick={() => setActiveView('setup')}
                                       className="inline-flex items-center gap-2 mt-4 px-6 py-2.5 bg-university-900 text-white rounded-xl text-xs font-bold shadow-lg transition-all hover:scale-105"
                                    >
-                                       Go to Setup Tool <ArrowRight className="h-3 w-3" />
+                                       Go to Infrastructure Setup <ArrowRight className="h-3 w-3" />
                                    </button>
                                </div>
                            </div>
@@ -679,45 +650,65 @@ CREATE POLICY "Storage - Allow Public Access" ON storage.objects FOR SELECT USIN
 
                <div className="grid grid-cols-1 md:grid-cols-4 gap-8 mb-12">
                   <StatCard label="Review Queue" value={pendingCount} icon={<Inbox className="text-blue-500" />} onClick={() => setActiveView('inbox')} />
+                  <StatCard label="Paper Requests" value={orderCount} icon={<Send className="text-pink-500" />} onClick={() => setActiveView('orders')} />
                   <StatCard label="Total PDFs" value={resources.length} icon={<FileText className="text-amber-500" />} onClick={() => setActiveView('resources')} />
                   <StatCard label="Total Students" value={uniqueUsers.length} icon={<Users className="text-purple-500" />} onClick={() => setActiveView('users')} />
-                  <StatCard label="Recent Logins" value={loginRecords.length} icon={<Activity className="text-green-500" />} onClick={() => setActiveView('activity')} />
-               </div>
-
-               <div className="bg-white dark:bg-slate-900 rounded-[2.5rem] shadow-xl border border-gray-100 dark:border-white/5 p-10">
-                  <h3 className="font-serif font-bold text-2xl mb-8 text-slate-900 dark:text-white">Recent Student Activity</h3>
-                  <div className="overflow-x-auto">
-                     <table className="w-full text-left text-sm text-slate-600 dark:text-slate-400">
-                        <thead className="bg-gray-50 dark:bg-slate-800/50 text-[10px] uppercase font-bold tracking-[0.2em] text-slate-400 border-b border-gray-100 dark:border-white/5">
-                           <tr>
-                              <th className="px-6 py-4">Submission</th>
-                              <th className="px-6 py-4">Uploader</th>
-                              <th className="px-6 py-4">Received</th>
-                              <th className="px-6 py-4 text-right">Status</th>
-                           </tr>
-                        </thead>
-                        <tbody className="divide-y divide-gray-100 dark:divide-white/5">
-                           {submissions.sort((a,b) => b.timestamp - a.timestamp).slice(0, 6).map(sub => (
-                              <tr key={sub.id} className="hover:bg-gray-50 dark:hover:bg-white/5 transition-colors">
-                                 <td className="px-6 py-4 font-bold text-slate-900 dark:text-white">{sub.fileName}</td>
-                                 <td className="px-6 py-4 font-medium">{sub.userIdentifier}</td>
-                                 <td className="px-6 py-4">{new Date(sub.timestamp).toLocaleDateString()}</td>
-                                 <td className="px-6 py-4 text-right">
-                                    <span className={`inline-flex px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest ${
-                                       sub.status === 'approved' ? 'bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400' :
-                                       sub.status === 'rejected' ? 'bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400' :
-                                       'bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-400'
-                                    }`}>
-                                       {sub.status === 'approved' ? 'Verified' : sub.status}
-                                    </span>
-                                 </td>
-                              </tr>
-                           ))}
-                        </tbody>
-                     </table>
-                  </div>
                </div>
             </div>
+         )}
+
+         {activeView === 'orders' && (
+             <div className="animate-in fade-in slide-in-from-bottom-6 duration-700">
+                <div className="mb-10 flex justify-between items-center">
+                    <div>
+                        <h1 className="text-4xl font-serif font-bold text-slate-900 dark:text-white">Paper Request Vault</h1>
+                        <p className="text-slate-500 dark:text-slate-400 font-medium mt-1">Student messages for missing resources</p>
+                    </div>
+                </div>
+
+                <div className="bg-white dark:bg-slate-900 rounded-[2.5rem] shadow-xl border border-gray-100 dark:border-white/5 overflow-hidden">
+                   <div className="overflow-x-auto">
+                      <table className="w-full text-left text-sm">
+                         <thead className="bg-gray-50 dark:bg-slate-800/50 text-[10px] uppercase font-bold tracking-[0.2em] text-slate-400 border-b border-gray-100 dark:border-white/5">
+                            <tr>
+                               <th className="px-8 py-5">Subject/Course</th>
+                               <th className="px-8 py-5">Sem</th>
+                               <th className="px-8 py-5">Specific Details</th>
+                               <th className="px-8 py-5">Student Email</th>
+                               <th className="px-8 py-5 text-right">Actions</th>
+                            </tr>
+                         </thead>
+                         <tbody className="divide-y divide-gray-100 dark:divide-white/5 text-slate-600 dark:text-slate-400">
+                            {orders.length > 0 ? orders.map(order => (
+                                <tr key={order.id} className="hover:bg-gray-50 dark:hover:bg-white/5 transition-colors group">
+                                    <td className="px-8 py-5 font-bold text-slate-900 dark:text-white">
+                                        {order.subject}
+                                    </td>
+                                    <td className="px-8 py-5 font-medium">{order.semester}</td>
+                                    <td className="px-8 py-5 text-xs max-w-xs">{order.details || 'No extra info'}</td>
+                                    <td className="px-8 py-5 font-medium text-university-accent">{order.email}</td>
+                                    <td className="px-8 py-5 text-right">
+                                        <button 
+                                            onClick={() => handleDeleteOrderAction(order.id)}
+                                            className="p-2.5 bg-gray-100 dark:bg-slate-800 text-gray-500 rounded-xl hover:bg-green-500 hover:text-white transition-all"
+                                            title="Mark as Addressed"
+                                        >
+                                            <Check className="h-4 w-4" />
+                                        </button>
+                                    </td>
+                                </tr>
+                            )) : (
+                                <tr>
+                                    <td colSpan={5} className="px-8 py-20 text-center text-slate-400 font-medium">
+                                        No active paper requests.
+                                    </td>
+                                </tr>
+                            )}
+                         </tbody>
+                      </table>
+                   </div>
+                </div>
+             </div>
          )}
 
          {activeView === 'setup' && (
@@ -733,10 +724,10 @@ CREATE POLICY "Storage - Allow Public Access" ON storage.objects FOR SELECT USIN
                            <div>
                                <h3 className="text-xl font-bold text-slate-900 dark:text-white mb-4 flex items-center gap-3">
                                    <Terminal className="h-6 w-6 text-university-accent" />
-                                   Database Setup SQL
+                                   Step 1: Copy Master SQL
                                </h3>
                                <p className="text-sm text-slate-500 dark:text-slate-400 mb-6 leading-relaxed">
-                                   This script will create all required tables (<code className="text-xs bg-gray-100 dark:bg-slate-800 px-1 rounded">resources</code>, <code className="text-xs bg-gray-100 dark:bg-slate-800 px-1 rounded">submissions</code>, etc.) and set up <strong>Row Level Security (RLS)</strong> policies so files can be uploaded.
+                                   Copy this code and paste it in <b>Supabase SQL Editor</b>. This version specifically fixes <b>PERMISSION_DENIED</b> errors by granting access to both guest and logged-in users.
                                </p>
                                <div className="bg-slate-950 rounded-2xl p-6 relative group overflow-hidden">
                                    <pre className="text-[10px] text-emerald-400 overflow-x-auto h-64 no-scrollbar opacity-60 group-hover:opacity-100 transition-opacity">
@@ -750,255 +741,50 @@ CREATE POLICY "Storage - Allow Public Access" ON storage.objects FOR SELECT USIN
                                    </button>
                                </div>
                            </div>
-
-                           <div className="p-6 bg-blue-50 dark:bg-blue-900/10 border-2 border-dashed border-blue-200 dark:border-blue-900/30 rounded-3xl">
-                               <h4 className="font-black text-[10px] text-blue-900 dark:text-blue-200 uppercase tracking-widest mb-3">How to use:</h4>
-                               <ol className="text-xs text-blue-800 dark:text-blue-300 space-y-2">
-                                   <li>1. Click <strong>Copy SQL</strong> above.</li>
-                                   <li>2. Open your <a href="https://supabase.com/dashboard/project/sjptcgmjokirbgeuehhm/sql/new" target="_blank" className="underline font-bold">Supabase SQL Editor</a>.</li>
-                                   <li>3. Paste the code and click <strong>Run</strong>.</li>
-                               </ol>
-                           </div>
                        </div>
 
                        <div className="space-y-8">
                            <h3 className="text-xl font-bold text-slate-900 dark:text-white mb-4 flex items-center gap-3">
                                <HardDrive className="h-6 w-6 text-university-accent" />
-                               Storage Bucket Setup
+                               Step 2: Check Bucket Toggle
                            </h3>
                            <p className="text-sm text-slate-500 dark:text-slate-400 mb-6 leading-relaxed">
-                               Supabase SQL doesn't create buckets automatically. You must create them manually in the Dashboard.
+                               Manual SQL cannot toggle the "Public" switch. You must check this manually.
                            </p>
 
-                           <div className="space-y-4">
-                               <div className="p-6 bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm flex items-center justify-between">
-                                   <div className="flex items-center gap-4">
-                                       <div className={`p-2 rounded-lg ${healthStatus?.resourcesBucket ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600'}`}>
-                                           <FolderOpen className="h-5 w-5" />
-                                       </div>
-                                       <div>
-                                           <p className="font-bold text-slate-900 dark:text-white">resources</p>
-                                           <p className="text-[10px] text-slate-400 uppercase font-black">Material Library</p>
-                                       </div>
+                           <div className="p-8 bg-blue-50 dark:bg-blue-900/10 border-2 border-blue-100 rounded-3xl space-y-6">
+                               <div className="flex items-start gap-4">
+                                   <div className="w-8 h-8 rounded-full bg-blue-600 text-white flex items-center justify-center font-bold shrink-0">1</div>
+                                   <div>
+                                       <p className="font-bold text-slate-900 dark:text-white">resources Bucket</p>
+                                       <p className="text-xs text-slate-500">Go to Storage -> resources -> Settings. Toggle <b>Public</b> to ON.</p>
                                    </div>
-                                   {healthStatus?.resourcesBucket ? <CheckCircle className="h-5 w-5 text-green-500" /> : <XCircle className="h-5 w-5 text-red-500" />}
                                </div>
-
-                               <div className="p-6 bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm flex items-center justify-between">
-                                   <div className="flex items-center gap-4">
-                                       <div className={`p-2 rounded-lg ${healthStatus?.submissionsBucket ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600'}`}>
-                                           <Upload className="h-5 w-5" />
-                                       </div>
-                                       <div>
-                                           <p className="font-bold text-slate-900 dark:text-white">submissions</p>
-                                           <p className="text-[10px] text-slate-400 uppercase font-black">Student Uploads</p>
-                                       </div>
+                               <div className="flex items-start gap-4">
+                                   <div className="w-8 h-8 rounded-full bg-blue-600 text-white flex items-center justify-center font-bold shrink-0">2</div>
+                                   <div>
+                                       <p className="font-bold text-slate-900 dark:text-white">submissions Bucket</p>
+                                       <p className="text-xs text-slate-500">Go to Storage -> submissions -> Settings. Toggle <b>Public</b> to ON.</p>
                                    </div>
-                                   {healthStatus?.submissionsBucket ? <CheckCircle className="h-5 w-5 text-green-500" /> : <XCircle className="h-5 w-5 text-red-500" />}
                                </div>
-                           </div>
-
-                           <div className="p-8 bg-amber-50 dark:bg-amber-900/10 border-2 border-amber-200 dark:border-amber-900/30 rounded-3xl">
-                               <h4 className="font-black text-[10px] text-amber-900 dark:text-amber-200 uppercase tracking-widest mb-4">Mandatory Storage Settings:</h4>
-                               <ul className="text-xs text-amber-800 dark:text-amber-300 space-y-3">
-                                   <li className="flex gap-2">
-                                       <div className="w-4 h-4 rounded bg-amber-200 text-amber-800 flex items-center justify-center font-bold text-[8px] shrink-0">1</div>
-                                       <span>Create both buckets named exactly as above.</span>
-                                   </li>
-                                   <li className="flex gap-2">
-                                       <div className="w-4 h-4 rounded bg-amber-200 text-amber-800 flex items-center justify-center font-bold text-[8px] shrink-0">2</div>
-                                       <span>Set <strong>"Public bucket"</strong> to <strong className="text-amber-900">ON</strong> for both.</span>
-                                   </li>
-                               </ul>
+                               
                                <a 
                                   href="https://supabase.com/dashboard/project/sjptcgmjokirbgeuehhm/storage" 
                                   target="_blank"
-                                  className="inline-flex items-center gap-2 mt-6 px-6 py-3 bg-amber-600 text-white rounded-xl text-xs font-bold shadow-lg hover:bg-amber-700 transition-all"
+                                  className="inline-flex items-center gap-2 mt-4 px-6 py-3 bg-university-900 text-white rounded-xl text-xs font-bold shadow-lg hover:bg-black transition-all"
                                >
                                    Open Storage Dashboard <ExternalLink className="h-3 w-3" />
                                </a>
                            </div>
+
+                           <div className="p-6 bg-amber-50 dark:bg-amber-900/10 border-2 border-dashed border-amber-200 rounded-2xl flex items-start gap-4">
+                               <Info className="h-5 w-5 text-amber-600 mt-1 shrink-0" />
+                               <p className="text-xs text-amber-800 dark:text-amber-300 font-bold">
+                                   Crucial: The SQL grants permission, but the "Public" toggle makes the links accessible.
+                               </p>
+                           </div>
                        </div>
                    </div>
-               </div>
-            </div>
-         )}
-
-         {activeView === 'inbox' && (
-            <div className="h-[calc(100vh-8rem)] flex flex-col animate-in fade-in duration-500">
-               <div className="flex justify-between items-end mb-10">
-                  <div>
-                    <h1 className="text-4xl font-serif font-bold text-slate-900 dark:text-white">Review Inbox</h1>
-                    <p className="text-slate-500 dark:text-slate-400 font-medium mt-1">Reward students for their contributions</p>
-                  </div>
-                  
-                  <div className="flex bg-gray-200 dark:bg-slate-800 p-1 rounded-2xl border border-gray-300 dark:border-slate-700">
-                      <button 
-                         onClick={() => { setInboxStatusFilter('pending'); setSelectedSubmissionId(null); }}
-                         className={`px-6 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2 ${inboxStatusFilter === 'pending' ? 'bg-white dark:bg-slate-700 text-university-900 dark:text-white shadow-lg' : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}
-                      >
-                         <Clock className="h-4 w-4" /> Pending Review
-                      </button>
-                      <button 
-                         onClick={() => { setInboxStatusFilter('approved'); setSelectedSubmissionId(null); }}
-                         className={`px-6 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2 ${inboxStatusFilter === 'approved' ? 'bg-white dark:bg-slate-700 text-university-900 dark:text-white shadow-lg' : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}
-                      >
-                         <CheckCircle className="h-4 w-4" /> Verified (Unpublished)
-                      </button>
-                  </div>
-               </div>
-               
-               <div className="bg-white dark:bg-slate-900 rounded-[2.5rem] shadow-2xl border border-gray-100 dark:border-white/5 overflow-hidden flex-1 flex">
-                  <div className={`w-1/3 border-r border-gray-100 dark:border-white/5 flex flex-col bg-gray-50/50 dark:bg-slate-900/50 ${selectedSubmissionId ? 'hidden md:flex' : 'flex'}`}>
-                      <div className="p-6 border-b border-gray-100 dark:border-white/5 bg-white dark:bg-slate-900 flex justify-between items-center">
-                          <span className="font-bold text-slate-900 dark:text-white uppercase tracking-widest text-xs">Queue</span>
-                          <span className="bg-university-accent text-white px-3 py-1 rounded-full text-[10px] font-bold">{filteredInboxSubmissions.length}</span>
-                      </div>
-                      <div className="flex-1 overflow-y-auto">
-                         {filteredInboxSubmissions.length === 0 ? (
-                            <div className="p-20 text-center text-slate-300">
-                               <Inbox className="h-16 w-16 mx-auto mb-4 opacity-20" />
-                               <p className="font-serif text-xl">Inbox is Empty</p>
-                            </div>
-                         ) : (
-                            filteredInboxSubmissions.map(sub => (
-                               <button
-                                  key={sub.id}
-                                  onClick={() => setSelectedSubmissionId(sub.id)}
-                                  className={`w-full text-left p-6 border-b border-gray-100 dark:border-white/5 hover:bg-white dark:hover:bg-slate-800 transition-all ${selectedSubmissionId === sub.id ? 'bg-white dark:bg-slate-800 border-l-8 border-l-university-accent shadow-2xl z-10' : 'border-l-8 border-l-transparent'}`}
-                               >
-                                  <div className="flex justify-between items-start mb-2">
-                                      <span className="font-bold text-[10px] uppercase tracking-widest text-slate-400">Submission</span>
-                                      <span className="text-[10px] font-bold text-slate-400">{new Date(sub.timestamp).toLocaleDateString()}</span>
-                                  </div>
-                                  <h4 className="text-sm font-bold text-slate-900 dark:text-white mb-2 line-clamp-1">{sub.fileName}</h4>
-                                  <p className="text-xs text-slate-500 font-medium truncate">By: {sub.userIdentifier}</p>
-                               </button>
-                            ))
-                         )}
-                      </div>
-                  </div>
-
-                  <div className={`w-2/3 flex flex-col bg-white dark:bg-slate-900 ${!selectedSubmissionId ? 'hidden md:flex' : 'flex'}`}>
-                     {selectedSubmissionId ? (
-                        (() => {
-                           const activeSub = submissions.find(s => s.id === selectedSubmissionId);
-                           if (!activeSub) return null;
-                           return (
-                              <div className="flex flex-col h-full animate-in fade-in duration-500">
-                                 <div className="p-6 border-b border-gray-100 dark:border-white/5 flex items-center justify-between">
-                                    <button onClick={() => setSelectedSubmissionId(null)} className="md:hidden p-3 hover:bg-gray-100 rounded-2xl">
-                                       <ArrowLeft className="h-6 w-6" />
-                                    </button>
-                                    <div className="flex gap-2">
-                                       <div className={`px-4 py-1.5 rounded-full text-[10px] font-bold uppercase tracking-widest border ${activeSub.status === 'pending' ? 'bg-amber-50 dark:bg-amber-900/20 text-amber-600 border-amber-200' : 'bg-green-50 dark:bg-green-900/20 text-green-600 border-green-200'}`}>
-                                          {activeSub.status === 'pending' ? 'Verification Required' : 'Verified & Credited'}
-                                       </div>
-                                    </div>
-                                 </div>
-
-                                 <div className="flex-1 overflow-y-auto p-12">
-                                    <div className="flex items-center gap-6 mb-12">
-                                       <div className="h-16 w-16 rounded-[1.5rem] bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center text-blue-600 dark:text-blue-400 font-bold text-2xl shadow-xl">S</div>
-                                       <div>
-                                          <p className="text-lg font-bold text-slate-900 dark:text-white">{activeSub.fileName}</p>
-                                          <p className="text-sm text-slate-500 font-medium">Uploader: {activeSub.userIdentifier}</p>
-                                       </div>
-                                       <span className="ml-auto text-xs font-bold text-slate-400 uppercase tracking-widest">{new Date(activeSub.timestamp).toLocaleString()}</span>
-                                    </div>
-
-                                    <div className="prose dark:prose-invert max-w-none text-slate-600 dark:text-slate-400">
-                                       <div className="grid grid-cols-2 gap-8 mb-12">
-                                          <div className="bg-gray-50 dark:bg-slate-800/50 p-6 rounded-3xl border border-gray-100 dark:border-white/5">
-                                             <span className="text-[10px] text-slate-400 uppercase font-bold tracking-[0.2em] block mb-2">Department</span>
-                                             <span className="font-bold text-lg text-slate-900 dark:text-white">{activeSub.subjectName}</span>
-                                          </div>
-                                          <div className="bg-gray-50 dark:bg-slate-800/50 p-6 rounded-3xl border border-gray-100 dark:border-white/5">
-                                             <span className="text-[10px] text-slate-400 uppercase font-bold tracking-[0.2em] block mb-2">Category</span>
-                                             <span className="font-bold text-lg text-slate-900 dark:text-white">Semester {activeSub.semester} &bull; {activeSub.type}</span>
-                                          </div>
-                                       </div>
-
-                                       <h4 className="font-bold text-slate-900 dark:text-white mb-4 uppercase tracking-widest text-xs">Review & Download</h4>
-                                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-12">
-                                          <button 
-                                              onClick={() => handleReviewDownload(activeSub.id)}
-                                              className="flex items-center gap-6 p-6 border-2 border-university-accent/20 bg-university-accent/5 rounded-3xl group hover:border-university-accent transition-all text-left"
-                                          >
-                                              <div className="p-4 bg-university-accent rounded-2xl text-white group-hover:scale-110 transition-transform">
-                                                  <Download className="h-8 w-8" />
-                                              </div>
-                                              <div>
-                                                  <p className="font-bold text-lg text-university-900 dark:text-white">Download PDF</p>
-                                                  <p className="text-xs text-university-600 dark:text-university-400 font-bold uppercase tracking-widest">Review file locally</p>
-                                              </div>
-                                          </button>
-                                          
-                                          <div className="flex items-center gap-6 p-6 border border-gray-100 dark:border-white/5 bg-gray-50 dark:bg-slate-800/50 rounded-3xl text-left">
-                                              <div className="p-4 bg-white dark:bg-slate-800 rounded-2xl shadow-sm">
-                                                  <FileText className="h-8 w-8 text-gray-400" />
-                                              </div>
-                                              <div>
-                                                  <p className="font-bold text-lg text-slate-900 dark:text-white">Metadata</p>
-                                                  <p className="text-xs text-slate-500 font-bold uppercase tracking-widest">{activeSub.pattern || 'Pattern Unknown'}</p>
-                                              </div>
-                                          </div>
-                                       </div>
-                                       
-                                       {activeSub.status === 'pending' ? (
-                                          <div className="flex gap-6">
-                                             <button 
-                                                onClick={() => handleSubmissionAction(activeSub.id, 'approve')}
-                                                disabled={!!isProcessing}
-                                                className="flex-[2] bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white py-5 rounded-[1.5rem] font-bold flex flex-col items-center justify-center transition-all shadow-2xl shadow-green-500/20"
-                                             >
-                                                <div className="flex items-center gap-3 mb-1"><CheckCircle className="h-5 w-5" /> Approve & Reward</div>
-                                                <span className="text-[10px] uppercase font-bold tracking-widest opacity-80">+5 Credits to Student Account</span>
-                                             </button>
-                                             <button 
-                                                onClick={() => handleSubmissionAction(activeSub.id, 'reject')}
-                                                disabled={!!isProcessing}
-                                                className="flex-1 border-2 border-red-500/20 text-red-500 hover:bg-red-500/10 py-5 rounded-[1.5rem] font-bold flex items-center justify-center gap-3 transition-all"
-                                             >
-                                                <XCircle className="h-5 w-5" /> Decline
-                                             </button>
-                                          </div>
-                                       ) : (
-                                          <div className="bg-university-accent/10 border-2 border-dashed border-university-accent/30 p-10 rounded-[2.5rem] text-center">
-                                              <Stamp className="h-12 w-12 text-university-accent mx-auto mb-4" />
-                                              <h3 className="text-xl font-bold text-university-900 dark:text-white mb-2">Already Verified</h3>
-                                              <p className="text-gray-600 dark:text-gray-400 mb-6 max-sm mx-auto">
-                                                 This file has been approved and credited. To publish it publicly, use the Manual Upload tool with the data below.
-                                              </p>
-                                              <button 
-                                                 onClick={() => {
-                                                    setUploadSubject(activeSub.subjectId);
-                                                    setUploadSemester(activeSub.semester.toString());
-                                                    setUploadType(activeSub.type);
-                                                    setUploadPattern(activeSub.pattern || '');
-                                                    setUploadDegree(activeSub.degreeLevel || '');
-                                                    setUploadCollege(activeSub.collegeId || '');
-                                                    setUploadTitle(activeSub.fileName.replace('.pdf', ''));
-                                                    setIsUploadModalOpen(true);
-                                                 }}
-                                                 className="bg-university-900 dark:bg-university-accent text-white px-8 py-3 rounded-xl font-bold shadow-lg hover:scale-105 transition-all"
-                                              >
-                                                 Populate Manual Upload
-                                              </button>
-                                          </div>
-                                       )}
-                                    </div>
-                                 </div>
-                              </div>
-                           );
-                        })()
-                     ) : (
-                        <div className="flex-1 flex flex-col items-center justify-center text-slate-300">
-                           <Inbox className="h-24 w-24 mb-6 opacity-10" />
-                           <p className="font-serif text-2xl font-bold opacity-30 uppercase tracking-widest">Select entry to moderate</p>
-                        </div>
-                     )}
-                  </div>
                </div>
             </div>
          )}
@@ -1076,6 +862,71 @@ CREATE POLICY "Storage - Allow Public Access" ON storage.objects FOR SELECT USIN
                 </div>
              </div>
          )}
+         
+         {activeView === 'inbox' && (
+             <div className="animate-in fade-in slide-in-from-bottom-6 duration-700">
+                <div className="mb-10 flex justify-between items-center">
+                    <div>
+                        <h1 className="text-4xl font-serif font-bold text-slate-900 dark:text-white">Submission Inbox</h1>
+                        <p className="text-slate-500 dark:text-slate-400 font-medium mt-1">Review student contributions</p>
+                    </div>
+                    <div className="flex gap-2 bg-gray-100 dark:bg-slate-800 p-1.5 rounded-2xl border border-gray-200 dark:border-slate-700">
+                        <button 
+                            onClick={() => setInboxStatusFilter('pending')}
+                            className={`px-6 py-2 rounded-xl text-xs font-bold transition-all ${inboxStatusFilter === 'pending' ? 'bg-white dark:bg-slate-700 text-university-accent shadow-sm' : 'text-slate-500'}`}
+                        >
+                            Pending
+                        </button>
+                        <button 
+                            onClick={() => setInboxStatusFilter('approved')}
+                            className={`px-6 py-2 rounded-xl text-xs font-bold transition-all ${inboxStatusFilter === 'approved' ? 'bg-white dark:bg-slate-700 text-university-accent shadow-sm' : 'text-slate-500'}`}
+                        >
+                            Approved
+                        </button>
+                    </div>
+                </div>
+
+                <div className="bg-white dark:bg-slate-900 rounded-[2.5rem] shadow-xl border border-gray-100 dark:border-white/5 overflow-hidden">
+                   <div className="overflow-x-auto">
+                      <table className="w-full text-left text-sm">
+                         <thead className="bg-gray-50 dark:bg-slate-800/50 text-[10px] uppercase font-bold tracking-[0.2em] text-slate-400 border-b border-gray-100 dark:border-white/5">
+                            <tr>
+                               <th className="px-8 py-5">File Name</th>
+                               <th className="px-8 py-5">Contributor</th>
+                               <th className="px-8 py-5">Subject</th>
+                               <th className="px-8 py-5 text-right">Actions</th>
+                            </tr>
+                         </thead>
+                         <tbody className="divide-y divide-gray-100 dark:divide-white/5 text-slate-600 dark:text-slate-400">
+                            {filteredInboxSubmissions.map(sub => (
+                                <tr key={sub.id} className="hover:bg-gray-50 dark:hover:bg-white/5 transition-colors group">
+                                    <td className="px-8 py-5 font-bold text-slate-900 dark:text-white">
+                                        <div className="flex items-center gap-3">
+                                            <FileText className="h-5 w-5 text-slate-300" />
+                                            {sub.fileName}
+                                        </div>
+                                    </td>
+                                    <td className="px-8 py-5 font-medium">{sub.userIdentifier}</td>
+                                    <td className="px-8 py-5">{sub.subjectName}</td>
+                                    <td className="px-8 py-5 text-right">
+                                        <div className="flex items-center justify-end gap-2">
+                                            {sub.status === 'pending' && (
+                                                <>
+                                                    <button onClick={() => onApprove(sub.id)} className="p-2.5 bg-green-500/10 text-green-600 rounded-xl hover:bg-green-500 hover:text-white transition-all"><Check className="h-4 w-4" /></button>
+                                                    <button onClick={() => onReject(sub.id)} className="p-2.5 bg-red-500/10 text-red-600 rounded-xl hover:bg-red-500 hover:text-white transition-all"><X className="h-4 w-4" /></button>
+                                                </>
+                                            )}
+                                            <button onClick={() => onDeleteSubmission(sub.id)} className="p-2.5 bg-gray-100 dark:bg-slate-800 text-gray-500 rounded-xl hover:bg-red-500 hover:text-white transition-all"><Trash2 className="h-4 w-4" /></button>
+                                        </div>
+                                    </td>
+                                </tr>
+                            ))}
+                         </tbody>
+                      </table>
+                   </div>
+                </div>
+             </div>
+         )}
 
          {activeView === 'users' && (
              <div className="animate-in fade-in slide-in-from-bottom-6 duration-700">
@@ -1089,9 +940,9 @@ CREATE POLICY "Storage - Allow Public Access" ON storage.objects FOR SELECT USIN
                             <thead className="bg-gray-50 dark:bg-slate-800/50 text-[10px] uppercase font-bold tracking-[0.2em] text-slate-400 border-b border-gray-100 dark:border-white/5">
                                 <tr>
                                     <th className="px-8 py-5">Student</th>
-                                    <th className="px-8 py-5">Submissions</th>
-                                    <th className="px-8 py-5">Verified</th>
-                                    <th className="px-8 py-5">Last Activity</th>
+                                    <th className="px-8 py-5">Institution</th>
+                                    <th className="px-8 py-5 text-center">Submissions</th>
+                                    <th className="px-8 py-5 text-center">Verified</th>
                                     <th className="px-8 py-5 text-right">Trust Score</th>
                                 </tr>
                             </thead>
@@ -1102,11 +953,14 @@ CREATE POLICY "Storage - Allow Public Access" ON storage.objects FOR SELECT USIN
                                             <div className="h-10 w-10 rounded-2xl bg-gradient-to-br from-university-accent to-orange-600 flex items-center justify-center text-white font-bold text-lg">
                                                 {user.identifier.charAt(0).toUpperCase()}
                                             </div>
-                                            {user.identifier}
+                                            <div className="flex flex-col">
+                                                <span>{user.name}</span>
+                                                <span className="text-[10px] font-medium text-slate-400">{user.identifier}</span>
+                                            </div>
                                         </td>
-                                        <td className="px-8 py-5 font-medium">{user.totalSubmissions}</td>
-                                        <td className="px-8 py-5 text-green-600 dark:text-green-400 font-bold">{user.approved}</td>
-                                        <td className="px-8 py-5">{new Date(user.lastActive).toLocaleDateString()}</td>
+                                        <td className="px-8 py-5 font-medium text-xs max-w-xs">{user.college}</td>
+                                        <td className="px-8 py-5 text-center font-bold text-slate-900 dark:text-white">{user.totalSubmissions}</td>
+                                        <td className="px-8 py-5 text-center text-green-600 dark:text-green-400 font-bold">{user.approved}</td>
                                         <td className="px-8 py-5 text-right">
                                             <div className="flex justify-end gap-1">
                                                 {[1, 2, 3, 4, 5].map(star => (
@@ -1126,40 +980,77 @@ CREATE POLICY "Storage - Allow Public Access" ON storage.objects FOR SELECT USIN
          {activeView === 'activity' && (
              <div className="animate-in fade-in slide-in-from-bottom-6 duration-700">
                  <div className="mb-12">
+                    <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-university-accent/10 border border-university-accent/20 text-university-accent text-[10px] font-black tracking-widest uppercase mb-4">
+                        <Fingerprint className="h-3 w-3" /> Enhanced Security Feed
+                    </div>
                     <h1 className="text-4xl font-serif font-bold text-slate-900 dark:text-white">Security Logs</h1>
-                    <p className="text-slate-500 dark:text-slate-400 font-medium mt-1">Audit trail of student authentications</p>
+                    <p className="text-slate-500 dark:text-slate-400 font-medium mt-1">Real-time audit of student access and identities</p>
                  </div>
                  <div className="bg-white dark:bg-slate-900 rounded-[2.5rem] shadow-xl border border-gray-100 dark:border-white/5 overflow-hidden">
-                     <table className="w-full text-left text-sm">
-                         <thead className="bg-gray-50 dark:bg-slate-800/50 text-[10px] uppercase font-bold tracking-[0.2em] text-slate-400 border-b border-gray-100 dark:border-white/5">
-                             <tr>
-                                 <th className="px-8 py-5">User</th>
-                                 <th className="px-8 py-5">Method</th>
-                                 <th className="px-8 py-5">Timestamp</th>
-                                 <th className="px-8 py-5 text-right">Status</th>
-                             </tr>
-                         </thead>
-                         <tbody className="divide-y divide-gray-100 dark:divide-white/5 text-slate-600 dark:text-slate-400">
-                             {loginRecords.sort((a,b) => b.timestamp - a.timestamp).map(record => (
-                                 <tr key={record.id} className="hover:bg-gray-50 dark:hover:bg-white/5 transition-colors">
-                                     <td className="px-8 py-5 font-bold text-slate-900 dark:text-white flex items-center gap-3">
-                                         {record.identifier}
-                                     </td>
-                                     <td className="px-8 py-5 text-[10px] font-bold uppercase tracking-widest text-slate-400">
-                                         {record.method}
-                                     </td>
-                                     <td className="px-8 py-5 font-medium">
-                                         {new Date(record.timestamp).toLocaleString()}
-                                     </td>
-                                     <td className="px-8 py-5 text-right">
-                                         <span className="text-green-600 dark:text-green-400 text-[10px] font-bold uppercase tracking-widest">
-                                             Success
-                                         </span>
-                                     </td>
-                                 </tr>
-                             ))}
-                         </tbody>
-                     </table>
+                     <div className="overflow-x-auto">
+                        <table className="w-full text-left text-sm">
+                            <thead className="bg-gray-50 dark:bg-slate-800/50 text-[10px] uppercase font-bold tracking-[0.2em] text-slate-400 border-b border-gray-100 dark:border-white/5">
+                                <tr>
+                                    <th className="px-8 py-5">Active Identity</th>
+                                    <th className="px-8 py-5">Assigned Institution</th>
+                                    <th className="px-8 py-5">Method</th>
+                                    <th className="px-8 py-5">Timestamp</th>
+                                    <th className="px-8 py-5 text-right">Gate Status</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-gray-100 dark:divide-white/5 text-slate-600 dark:text-slate-400">
+                                {loginRecords.sort((a,b) => b.timestamp - a.timestamp).map(record => {
+                                    const profile = allProfiles.find(p => p.identifier === record.identifier);
+                                    const college = COLLEGES.find(c => c.id === profile?.collegeId);
+                                    
+                                    return (
+                                        <tr key={record.id} className="hover:bg-gray-50 dark:hover:bg-white/5 transition-colors group">
+                                            <td className="px-8 py-5">
+                                                <div className="flex items-center gap-3">
+                                                    <div className="h-9 w-9 rounded-xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-500 group-hover:bg-university-accent group-hover:text-white transition-all">
+                                                        <UserIcon className="h-4 w-4" />
+                                                    </div>
+                                                    <div className="flex flex-col">
+                                                        <span className="font-bold text-slate-900 dark:text-white">{profile?.name || 'Unknown User'}</span>
+                                                        <span className="text-[10px] font-medium text-slate-400">{record.identifier}</span>
+                                                    </div>
+                                                </div>
+                                            </td>
+                                            <td className="px-8 py-5">
+                                                <div className="flex items-center gap-2 text-xs font-medium">
+                                                    <Building2 className="h-3.5 w-3.5 text-slate-300" />
+                                                    <span className="line-clamp-1">{college?.name || 'N/A'}</span>
+                                                </div>
+                                            </td>
+                                            <td className="px-8 py-5">
+                                                <div className="flex items-center gap-2">
+                                                    <Smartphone className="h-3.5 w-3.5 text-slate-400" />
+                                                    <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">{record.method}</span>
+                                                </div>
+                                            </td>
+                                            <td className="px-8 py-5">
+                                                <div className="flex flex-col">
+                                                    <span className="font-bold text-slate-700 dark:text-slate-300 flex items-center gap-2">
+                                                        <Calendar className="h-3 w-3 text-university-accent" />
+                                                        {new Date(record.timestamp).toLocaleDateString()}
+                                                    </span>
+                                                    <span className="text-[10px] text-slate-400 font-medium flex items-center gap-2 mt-1">
+                                                        <Clock className="h-3 w-3" />
+                                                        {new Date(record.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                                    </span>
+                                                </div>
+                                            </td>
+                                            <td className="px-8 py-5 text-right">
+                                                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-green-500/10 text-green-600 dark:text-green-400 text-[10px] font-black uppercase tracking-widest border border-green-500/20">
+                                                    <ShieldCheck className="h-3 w-3" /> Authorized
+                                                </span>
+                                            </td>
+                                        </tr>
+                                    );
+                                })}
+                            </tbody>
+                        </table>
+                     </div>
                  </div>
              </div>
          )}
@@ -1168,50 +1059,76 @@ CREATE POLICY "Storage - Allow Public Access" ON storage.objects FOR SELECT USIN
             <div className="animate-in fade-in slide-in-from-bottom-6 duration-700 max-w-2xl">
                <div className="mb-12">
                    <h1 className="text-4xl font-serif font-bold text-slate-900 dark:text-white">System Config</h1>
-                   <p className="text-slate-500 dark:text-slate-400 font-medium mt-1">Manage administrator security</p>
+                   <p className="text-slate-500 dark:text-slate-400 font-medium mt-1">Manage administrator security and credentials</p>
                </div>
                
-               <div className="bg-white dark:bg-slate-900 rounded-[2.5rem] shadow-xl border border-gray-100 dark:border-white/5 p-10">
-                  <form onSubmit={handleChangePassword} className="space-y-6">
+               <div className="bg-white dark:bg-slate-900 rounded-[2.5rem] shadow-xl border border-gray-100 dark:border-white/5 p-10 relative overflow-hidden">
+                  <div className="absolute top-0 right-0 w-32 h-32 bg-university-accent/5 rounded-full blur-3xl"></div>
+                  
+                  <form onSubmit={handlePasswordUpdate} className="space-y-6 relative z-10">
+                     <div className="flex items-center gap-3 mb-6 p-4 bg-gray-50 dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700">
+                        <ShieldAlert className="h-6 w-6 text-university-accent" />
+                        <div>
+                           <p className="text-xs font-bold text-slate-900 dark:text-white">Security Protocol</p>
+                           <p className="text-[10px] text-slate-500">Updating credentials will immediately invalidate the previous secret key.</p>
+                        </div>
+                     </div>
+
+                     {settingsError && (
+                        <div className="p-4 bg-red-50 dark:bg-red-900/20 border border-red-100 dark:border-red-900/30 text-red-600 dark:text-red-400 text-xs font-bold rounded-xl flex items-center gap-2">
+                           <AlertCircle className="h-4 w-4" /> {settingsError}
+                        </div>
+                     )}
+
+                     {settingsSuccess && (
+                        <div className="p-4 bg-green-50 dark:bg-green-900/20 border border-green-100 dark:border-green-900/30 text-green-600 dark:text-green-400 text-xs font-bold rounded-xl flex items-center gap-2">
+                           <CheckCircle className="h-4 w-4" /> Passcode updated successfully!
+                        </div>
+                     )}
+
                      <div>
                         <label className="block text-[10px] font-bold text-slate-500 mb-2 uppercase tracking-widest">Current Passcode</label>
                         <input 
                            type="password"
-                           value={currentPwd}
-                           onChange={(e) => setCurrentPwd(e.target.value)}
+                           required
+                           value={currentPassInput}
+                           onChange={(e) => setCurrentPassInput(e.target.value)}
                            className="w-full p-4 bg-gray-50 dark:bg-slate-800 border-2 border-transparent focus:border-university-accent rounded-xl focus:outline-none transition-all dark:text-white"
+                           placeholder="••••••••"
                         />
                      </div>
-                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+
+                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div>
                            <label className="block text-[10px] font-bold text-slate-500 mb-2 uppercase tracking-widest">New Passcode</label>
                            <input 
                               type="password"
-                              value={newPwd}
-                              onChange={(e) => setNewPwd(e.target.value)}
+                              required
+                              value={newPassInput}
+                              onChange={(e) => setNewPassInput(e.target.value)}
                               className="w-full p-4 bg-gray-50 dark:bg-slate-800 border-2 border-transparent focus:border-university-accent rounded-xl focus:outline-none transition-all dark:text-white"
+                              placeholder="New Secret"
                            />
                         </div>
                         <div>
                            <label className="block text-[10px] font-bold text-slate-500 mb-2 uppercase tracking-widest">Confirm New Passcode</label>
                            <input 
                               type="password"
-                              value={confirmPwd}
-                              onChange={(e) => setConfirmPwd(e.target.value)}
+                              required
+                              value={confirmPassInput}
+                              onChange={(e) => setConfirmPassInput(e.target.value)}
                               className="w-full p-4 bg-gray-50 dark:bg-slate-800 border-2 border-transparent focus:border-university-accent rounded-xl focus:outline-none transition-all dark:text-white"
+                              placeholder="Repeat Secret"
                            />
                         </div>
                      </div>
-                     {settingsMsg && (
-                        <div className={`p-4 rounded-xl text-xs font-bold ${settingsMsg.type === 'success' ? 'bg-green-50 text-green-600' : 'bg-red-50 text-red-600'}`}>
-                           {settingsMsg.text}
-                        </div>
-                     )}
+
                      <button 
                         type="submit"
-                        className="w-full bg-university-900 hover:bg-black text-white font-bold py-4 rounded-xl shadow-xl transition-all"
+                        className="w-full bg-university-900 hover:bg-black text-white font-bold py-5 rounded-2xl shadow-xl transition-all flex items-center justify-center gap-3 group"
                      >
-                        Update Security Credentials
+                        <RefreshCcw className="h-4 w-4 group-hover:rotate-180 transition-transform duration-500" /> 
+                        Apply Security Update
                      </button>
                   </form>
                </div>
@@ -1238,7 +1155,7 @@ const SidebarItem = ({ icon, label, active, onClick, badge }: { icon: any, label
       className={`w-full flex items-center justify-between px-6 py-4 rounded-2xl transition-all duration-300 group ${active ? 'bg-university-accent text-white shadow-xl shadow-university-accent/20 scale-[1.02]' : 'text-slate-400 hover:bg-white/5 hover:text-white'}`}
    >
       <div className="flex items-center gap-4">
-         {React.cloneElement(icon, { size: 20, className: `transition-transform group-hover:scale-110 ${active ? 'text-white' : 'text-slate-500 group-hover:text-university-accent'}` })}
+         {React.cloneElement(icon as React.ReactElement<any>, { size: 20, className: `transition-transform group-hover:scale-110 ${active ? 'text-white' : 'text-slate-500 group-hover:text-university-accent'}` })}
          <span className="font-bold text-sm tracking-tight">{label}</span>
       </div>
       {badge ? (
